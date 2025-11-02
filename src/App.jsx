@@ -1,33 +1,48 @@
-import { Routes, Route } from "react-router-dom";
-import Nav from "./components/Nav";
-import Topbar from "./components/Topbar";
-import Dashboard from "./pages/Dashboard";
+import React from "react";
+import { Routes, Route, NavLink } from "react-router-dom";
+import StaffAttendance from "./pages/StaffAttendance";
 import Members from "./pages/Members";
 import Payments from "./pages/Payments";
-import CheckIn from "./pages/CheckIn";
-import Staff from "./pages/Staff"; // ✅ new page
+import ProgressDetail from "./pages/ProgressDetail";
 import "./styles.css";
+
+function Navbar() {
+  const link = ({ isActive }) => "nav-link" + (isActive ? " nav-link-active" : "");
+  return (
+    <header className="app-header">
+      <div className="brand">Kusgan Gym</div>
+      <nav className="nav">
+        <NavLink to="attendance" end className={link}>Attendance</NavLink>
+        <NavLink to="members" end className={link}>Members</NavLink>
+        <NavLink to="payments" end className={link}>Payments</NavLink>
+      </nav>
+    </header>
+  );
+}
+
+function Landing() {
+  return (
+    <div style={{ padding: 24 }}>
+      <h1>Welcome</h1>
+      <p>Select a section from the navbar.</p>
+    </div>
+  );
+}
 
 export default function App() {
   return (
-    <div className="app">
-      {/* Left Sidebar */}
-      <Nav />
-
-      {/* Right Section */}
-      <div>
-        {/* Top bar always visible */}
-        <Topbar attendant="KIM ARCEO" />
-
-        {/* Page Routes */}
+    <>
+      <Navbar />
+      <main className="app-main">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/staff" element={<Staff />} />  {/* ✅ staff attendance */}
-          <Route path="/members" element={<Members />} />
-          <Route path="/payments" element={<Payments />} />
-          <Route path="/checkin" element={<CheckIn />} />
+          <Route index element={<Landing />} />
+          <Route path="attendance" element={<StaffAttendance />} />
+          <Route path="members" element={<Members />} />
+          <Route path="payments" element={<Payments />} />
+          <Route path="progress/:id" element={<ProgressDetail />} />
+          <Route path="*" element={<Landing />} />
         </Routes>
-      </div>
-    </div>
+      </main>
+    </>
   );
 }

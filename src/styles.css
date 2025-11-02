@@ -1,10 +1,9 @@
 :root{
   /* Brand */
   --kusgan-magenta:#d81b8a;
-  --kusgan-magenta-100:#ffd6ec;   /* light highlight */
-  --kusgan-magenta-200:#f9c1e2;
+  --kusgan-magenta-100:#ffd6ec;
 
-  /* Light surface (right side) */
+  /* Light theme */
   --light-bg:#f6f7fb;
   --light-surface:#ffffff;
   --light-border:#e7e8ef;
@@ -16,11 +15,27 @@
   --sidebar-border:#1e1e25;
   --sidebar-text:#e9e9ee;
   --sidebar-muted:#b6b8c2;
+
+  /* =========================================
+     Kusgan Unified Buttons (global overrides)
+     ========================================= */
+  --btn-bg: var(--kusgan-magenta);
+  --btn-bg-600: #c11679;
+  --btn-bg-700: #a30e69;
+  --btn-text: #ffffff;
+  --btn-ring: 0 0 0 3px rgba(216,27,138,.28);
+
+  /* Attendance column percentages (must add to 100) */
+  --att-c1: 20; /* Staff Name */
+  --att-c2: 15; /* Date */
+  --att-c3: 10; /* Sign In */
+  --att-c4: 10; /* Sign Out */
+  --att-c5: 10; /* Total Hours */
 }
 
-/* Reset / base */
-*{box-sizing:border-box}
-html,body,#root{height:100%}
+/* ---------- Base ---------- */
+*{ box-sizing:border-box; }
+html,body,#root{ height:100%; }
 body{
   margin:0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -28,117 +43,703 @@ body{
   color:var(--text);
 }
 
-/* Layout */
+/* ---------- Layout ---------- */
 .app{
-  display:grid;
-  grid-template-columns:260px 1fr;
-  height:100%;
-}
-
-/* Sidebar (black) */
-.sidebar{
-  background:var(--sidebar-bg);
-  border-right:1px solid var(--sidebar-border);
-  padding:16px 12px;
-}
-
-/* Logo block on top (big logo, centered, no text) */
-.brand{
   display:flex;
-  justify-content:center;
-  align-items:center;
-  padding:24px 0 28px 0;
+  height:100vh;
+  overflow:hidden;
+}
+
+/* Sidebar (fixed) */
+.sidebar{
+  position:fixed; inset:0 auto 0 0;
+  width:260px; background:var(--sidebar-bg);
+  border-right:1px solid var(--sidebar-border);
+  color:var(--sidebar-text);
+  padding:16px 12px;
+  overflow-y:auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden; /* let links area scroll instead */
+}
+
+/* Make links area grow and scroll */
+.nav{
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+/* Footer with full‑width logout button */
+.sidebar-footer{
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid var(--sidebar-border);
+}
+.logout-btn{
+  width: 100%;
+  display: inline-block;      /* ensure height applies */
+}
+
+/* Right side (scrollable) */
+.main-content{
+  flex:1; margin-left:260px; height:100vh;
+  overflow-y:auto; padding:20px; background:var(--light-bg);
+}
+
+/* ---------- Sidebar content ---------- */
+.brand{
+  display:flex; align-items:center; justify-content:center;
+  padding:14px 8px 18px;
   border-bottom:1px solid var(--sidebar-border);
   margin-bottom:10px;
 }
-.brand img,
 .brand-logo{
-  width:160px;        /* adjust size here if you want bigger/smaller */
-  height:auto;
-  object-fit:contain;
-  filter: drop-shadow(0 0 4px rgba(255,255,255,0.12));
+  width:140px; max-width:100%; height:auto; display:block; object-fit:contain;
 }
 
-/* Nav links */
+/* Date + Primary attendant (sidebar) */
+.sidebar-info{
+  color:var(--sidebar-muted); font-size:13px;
+  margin-top:10px; margin-bottom:20px; padding-top:8px;
+  border-top:1px solid var(--sidebar-border);
+}
+.sidebar-info .date-line{ margin:2px 0; }
+.sidebar-info .today{ font-weight:400; color:var(--sidebar-text); }
+.sidebar-info .weekday{ font-weight:800; color:var(--sidebar-text); }
+.sidebar-info .mdy{ font-weight:600; color:var(--sidebar-text); }
+.sidebar-info .label{ font-weight:400; color:var(--sidebar-text); display:block; margin-top:10px; }
+.sidebar-info .name{ font-weight:900; color:var(--sidebar-text); }
+
+/* Nav */
 .nav a{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:10px 12px;
-  color:var(--sidebar-text);
-  text-decoration:none;
-  border-radius:10px;
-  margin:4px 0;
-  transition:background .15s ease, color .15s ease, transform .05s ease;
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px; margin:4px 0; border-radius:10px;
+  color:var(--sidebar-text); text-decoration:none;
+  transition:background .15s ease,color .15s ease;
 }
-.nav a:hover{
-  background:#14141a;
-}
-.nav a.active{
-  background:var(--kusgan-magenta-100);  /* light pink/magenta highlight */
-  color:#4b0a2a;
-  font-weight:700;
-}
+.nav a:hover{ background:#14141a; }
+.nav a.active{ background:var(--kusgan-magenta-100); color:#54082f; font-weight:700; }
 
-/* Right-side Top banner */
-.topbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 18px;
-  background:var(--light-surface);
-  border-bottom:1px solid var(--light-border);
-  position:sticky; top:0; z-index:10;
-}
-.topbar .attendant{
-  font-weight:800;
-  letter-spacing:.4px;
-}
-.topbar .date{
-  color:var(--muted);
-  font-weight:600;
-}
+/* ---------- Content wrappers ---------- */
+.content{ padding:18px; }
 
-/* Page content */
-.content{
-  padding:18px;
-  overflow:auto;
-}
-.cards{
-  display:grid; gap:14px;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-}
-.card{
-  background:var(--light-surface);
-  border:1px solid var(--light-border);
-  border-radius:14px;
-  padding:14px;
-  box-shadow:0 2px 10px rgba(0,0,0,.03);
-}
-.card .title{font-size:12px;color:var(--muted)}
-.card .value{font-size:26px;font-weight:800;margin-top:6px}
+/* Headings */
+.content h2{ font-size:24px; font-weight:800; margin-bottom:12px; }
+h3{ margin-top:16px; }
 
-/* Tables */
-table{width:100%;border-collapse:collapse;border:1px solid var(--light-border)}
-th,td{padding:10px;border-bottom:1px solid var(--light-border);text-align:left}
-th{color:var(--muted);font-weight:600;background:#fafbff}
-tr:hover td{background:#fafbff}
+/* ---------- Tables ---------- */
+table{ width:100%; border-collapse:collapse; border:1px solid var(--light-border); }
+th,td{ padding:10px; border-bottom:1px solid var(--light-border); text-align:left; }
+th{ color:var(--muted); font-weight:600; background:#fafbff; }
+tbody tr{ transition:background .12s ease; }
+tbody tr:hover{ background:#f5f7ff; }
+tbody tr.row-link { cursor: pointer; }
+tbody tr.row-link:hover { background:#eef2ff; }
 
-/* Inputs & buttons */
-input,select{
-  width:100%;background:#fff;color:var(--text);
-  border:1px solid var(--light-border);border-radius:10px;padding:10px;outline:none
-}
+/* Keep key tables aligned */
+table.aligned{ table-layout:fixed; margin-bottom:40px; }
+
+/* ---------- Buttons ---------- */
 .button{
-  background:var(--kusgan-magenta);color:white;border:none;
-  padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer
+  background:var(--kusgan-magenta); color:#fff; border:none;
+  padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+}
+.button:hover{ opacity:.9; }
+
+/* Back + Track Progress (consistent size + spacing) */
+.back-btn,
+.progress-header button,
+.logout-btn {                 /* added .logout-btn */
+  font-size: 1.0rem;
+  height: 44px;
+  padding: 0 28px;
+  font-weight: 800;
+  border-radius: 10px;
+  background: var(--kusgan-magenta);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease-in-out;
 }
 
-/* Badges */
-.badge{
-  display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;
-  background:#f4f5fb;border:1px solid var(--light-border);color:#353849
+.back-btn:hover,
+.progress-header button:hover,
+.logout-btn:hover {           /* added .logout-btn */
+  opacity: 0.9;
 }
-.badge.ok{border-color:#2f9e44;color:#2f9e44;background:#e9f8ee}
-.badge.warn{border-color:#e8590c;color:#e8590c;background:#fff2e8}
-.badge.info{border-color:#1971c2;color:#1971c2;background:#e8f3ff}
+.back-btn{ margin-bottom:20px; }
+
+/* Progress section header (button spacing) */
+.progress-header{
+  display:flex; align-items:center; justify-content:space-between;
+  margin:10px 0 24px;
+}
+
+/* ---------- Status chips ---------- */
+.pill{
+  display:inline-block; padding:4px 8px; border-radius:999px;
+  font-size:13px; border:1px solid transparent; font-weight:800;
+}
+.pill.ok{ color:#2f9e44; border-color:#b7efc5; background:#e9f8ee; }
+.pill.bad{ color:#d64545; border-color:#f3b3b3; background:#fdecec; }
+
+/* Badges for student/senior */
+.pill.student { color:#1e66f5; border-color:#c7d2fe; background:#edf2ff; }
+.pill.senior  { color:#ad6800; border-color:#ffe1a8; background:#fff7e6; }
+
+/* ---------- Members toolbar ---------- */
+.toolbar{
+  display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:12px;
+}
+.toolbar .search-wide{
+  grid-column:span 4; height:44px; padding:10px 14px;
+  font-size:1.0rem; font-style:italic;
+}
+.toolbar .search-wide::placeholder{ color:#888; font-style:italic; }
+.toolbar .button{ height:44px; font-size:1.0rem; }
+
+/* ---------- Attendance toggle ---------- */
+.switch{ position:relative; display:inline-block; width:54px; height:30px; }
+.switch input{ display:none; }
+.slider{
+  position:absolute; inset:0; cursor:pointer; border-radius:999px;
+  background:#d9534f; border:1px solid var(--light-border); transition:.2s;
+}
+.slider:before{
+  content:""; position:absolute; left:3px; top:2px;
+  width:24px; height:24px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:.2s;
+}
+.switch.on .slider{ background:#2f9e44; }
+.switch.on .slider:before{ transform:translateX(24px); }
+
+/* ---------- Member Detail (6-col grid) ---------- */
+.member-grid{
+  display:grid; gap:16px;
+  grid-template-columns:repeat(6,1fr);
+  grid-auto-rows:minmax(48px,auto);
+  margin-bottom:40px;
+}
+
+/* Photo 2 cols x 3 rows */
+.member-grid .photo{
+  grid-column:1 / span 2; grid-row:1 / span 3;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--light-border); border-radius:14px; background:#fafbff;
+  overflow:hidden; max-width:300px; max-height:200px;
+}
+.member-grid .photo img{ width:100%; height:100%; object-fit:cover; }
+
+/* Right of photo rows */
+.member-grid .lastname   { grid-column:3 / span 2; grid-row:1; }
+.member-grid .firstname  { grid-column:4 / span 1; grid-row:1; }
+.member-grid .middlename { grid-column:5 / span 1; grid-row:1; }
+.member-grid .gender     { grid-column:3 / span 2; grid-row:2; }
+.member-grid .birthday   { grid-column:4 / span 1; grid-row:2; }
+.member-grid .age        { grid-column:5 / span 1; grid-row:2; }
+.member-grid .street     { grid-column:3 / span 2; grid-row:3; }
+.member-grid .brgy       { grid-column:4 / span 1; grid-row:3; }
+.member-grid .municipality{ grid-column:5 / span 1; grid-row:3; }
+
+/* Below photo */
+.member-grid .nickname   { grid-column:1 / span 2; grid-row:4; }
+.member-grid .mobile     { grid-column:3 / span 2; grid-row:4; }
+.member-grid .email      { grid-column:4 / span 2; grid-row:4; }
+.member-grid .memberSince{ grid-column:1 / span 2; grid-row:5; }
+.member-grid .gym        { grid-column:3 / span 2; grid-row:5; }
+.member-grid .coach      { grid-column:4 / span 2; grid-row:5; }
+
+/* Labels + values */
+.member-grid .cell .label{
+  font-style:italic; color:var(--muted); margin-bottom:2px; font-size:12px;
+}
+.member-grid .cell .value{
+  font-weight:700; font-size:18px;
+}
+/* === FINAL: Back & Track Progress button styling === */
+.back-btn,
+.progress-header button,
+.logout-btn {                 /* added .logout-btn */
+  font-size: 1.0rem;
+  height: 44px;
+  padding: 0 28px;
+  font-weight: 800;
+  border-radius: 10px;
+  background: var(--kusgan-magenta);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.back-btn:hover,
+.progress-header button:hover,
+.logout-btn:hover {           /* added .logout-btn */
+  opacity: 0.9;
+}
+
+/* Sidebar footer keeps full‑width layout */
+.logout-btn{
+  width: 100%;
+  display: inline-block;      /* ensure height applies */
+}
+
+/* Add space below buttons to avoid “dikit” with tables/images */
+.back-btn {
+  display: inline-block;
+  margin-bottom: 28px;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;   /* keep items close together */
+  gap: 60px;                     /* space between “Progress” and button */
+  margin: 10px 0 32px;           /* keep bottom spacing */
+}
+
+/* --- Add Member form layout --- */
+.form-wide { max-width: 1100px; }
+.form-grid-2{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap:16px;
+}
+
+.field{ display:flex; flex-direction:column; }
+.field-span-2{ grid-column: span 2; }
+
+.field label{
+  font-size: 16px;          /* bigger labels */
+  font-style: italic;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.field input,
+.field select{
+  height: 46px;             /* taller inputs */
+  padding: 10px 12px;
+  font-size: 16px;          /* bigger text */
+  border: 1px solid var(--light-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+}
+
+/* Actions: same size as Back button */
+.form-actions{
+  display:flex; gap:12px;
+  margin-top: 16px;         /* space below form before tables */
+}
+.btn-lg{
+  font-size: 1.1rem;
+  height: 48px;
+  padding: 0 24px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+/* --- Add Member: Photo capture section --- */
+.photo-section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.photo-label {
+  font-size: 18px;
+  font-style: italic;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.photo-preview,
+.photo-placeholder {
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--light-border);
+  border-radius: 12px;
+  object-fit: cover;
+  background: #fafbff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.photo-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.photo-buttons .button {
+  height: 44px;
+  font-size: 1.05rem;
+}
+/* Proper alignment + theme color for checkboxes */
+input[type="checkbox"] {
+  transform: scale(1.4);       /* smaller checkbox */
+  vertical-align: middle;
+  margin-right: 8px;
+  accent-color: var(--kusgan-magenta);
+  cursor: pointer;
+}
+label.checkbox-label {
+  display: flex;
+  align-items: center;
+  font-style: italic;
+  color: var(--muted);
+  gap: 6px;
+}
+
+.camera-btn {
+  font-size: 1.2rem;
+  height: 52px;
+  padding: 0 28px;
+  font-weight: 800;
+  border-radius: 10px;
+  background: var(--kusgan-magenta);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease-in-out;
+}
+.camera-btn:hover {
+  opacity: 0.9;
+}
+/* === AddMember form layout fixes === */
+.form-wrap { max-width: 1200px; }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field .label { font-style: italic; color: var(--muted); font-size: 14px; }
+
+.field input,
+.field select {
+  width: 100%;
+  height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--light-border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 16px;
+}
+
+.camera-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.checkbox-row input { transform: scale(1.4); accent-color: var(--kusgan-magenta); }
+
+.form-actions { display: flex; gap: 12px; margin-top: 16px; }
+
+/* Add Member: photo area */
+.photo-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;           /* keeps the cell tall enough */
+}
+.photo-preview {
+  width: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--light-border, #e5e7eb);
+}
+.photo-placeholder {
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  border: 1px dashed var(--light-border, #e5e7eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #6b7280);
+  background: #fafbff;
+}
+
+/* 3-col helper grid if not yet defined */
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+button[disabled], .button[disabled], .back-btn[disabled], .camera-btn[disabled], .primary-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.field.error input, .field input[aria-invalid="true"] {
+  border-color: #ef4444 !important;
+  outline-color: #ef4444;
+}
+.small-error {
+  color: #ef4444;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Staff Attendance form layout */
+.att-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.att-left {
+  flex: 1 1 600px;       /* grow wide on large screens */
+  min-width: 420px;      /* keep it big even on medium screens */
+}
+.big-select {
+  width: 100%;
+  height: 44px;
+  font-size: 16px;
+  padding: 8px 12px;
+}
+.att-actions {
+  display: flex;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.att-actions .primary-btn,
+.att-actions .back-btn {
+  height: 44px;
+  min-width: 140px;
+}
+
+/* Scoped stacked layout for Staff Attendance */
+.att-form{
+  display: grid;
+  justify-items: center;   /* center children */
+  gap: 12px;
+  width: 100%;
+}
+.att-form-select{
+  width: 100%;
+  max-width: 420px;        /* narrower dropdown */
+}
+.att-select-input{
+  width: 100%;
+  height: 44px;
+  font-size: 16px;
+  padding: 8px 12px;
+}
+.att-form-actions{
+  display: flex;
+  gap: 12px;
+  justify-content: center; /* center buttons under select */
+  width: 100%;
+  max-width: 420px;        /* same width as select for perfect alignment */
+}
+.att-form-actions .primary-btn,
+.att-form-actions .back-btn{
+  height: 44px;
+  min-width: 140px;
+}
+
+/* Optional: on small screens, allow full width */
+@media (max-width: 600px){
+  .att-form-select,
+  .att-form-actions{ max-width: 100%; }
+}
+
+/* Responsive collapse */
+@media (max-width: 900px){
+  .att-grid5{ grid-template-columns: 1fr; }
+  .att-controls, .att-actions{ grid-column: auto; }
+  .att-actions{ justify-content: flex-start; }
+}
+
+/* Disabled buttons look muted */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Stacked attendance form */
+.att-form{
+  display: flex;
+  flex-direction: column;
+  align-items: center;   /* center children horizontally */
+  gap: 12px;
+}
+.att-select{
+  width: 100%;
+  max-width: 520px;      /* narrower dropdown */
+}
+.big-select{
+  width: 100%;
+  height: 44px;
+  font-size: 16px;
+  padding: 8px 12px;
+}
+.att-actions{
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+.att-actions-center{ justify-content: center; }
+.att-actions .primary-btn,
+.att-actions .back-btn{
+  height: 44px;
+  min-width: 140px;
+}
+
+/* Mobile: let select use full width */
+@media (max-width: 600px){
+  .att-select{ max-width: 100%; }
+}
+
+/* Unified primary button style (match .back-btn) */
+.primary-btn{
+  font-size: 1.0rem;
+  height: 44px;
+  padding: 0 28px;
+  font-weight: 800;
+  border-radius: 10px;
+  background: var(--kusgan-magenta);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease-in-out;
+}
+.primary-btn:hover{ opacity: 0.9; }
+
+/* Ensure disabled state matches */
+button[disabled],
+.button[disabled],
+.back-btn[disabled],
+.camera-btn[disabled],
+.primary-btn[disabled]{
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Attendance Records table width */
+.attendance-table{
+  width: min(1100px, 100%); /* or 100% for full width */
+  margin: 0;                /* left-align (no auto-centering) */
+}
+
+/* Column distribution stays controlled by these vars (not overall width):
+   :root --att-c1 .. --att-c5 (must total 100) */
+
+/* Staff Attendance: left-align form + table (override previous centering) */
+.att-form{
+  display: flex;           /* ensure flex wins over earlier grid */
+  flex-direction: column;
+  align-items: flex-start; /* left */
+  gap: 12px;
+  width: 100%;
+}
+.att-form-actions{
+  justify-content: flex-start; /* buttons align left under dropdown */
+  max-width: 420px;            /* match dropdown width; adjust if needed */
+}
+
+/* Attendance Records table left-aligned */
+.attendance-table{
+  width: min(1100px, 100%); /* or 100% for full width */
+  margin: 0;                /* left-align (no auto-centering) */
+}
+
+/* Staff Attendance: inline row (dropdown + buttons, left-aligned) */
+.att-inline{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;          /* wrap on small widths */
+}
+.att-inline-select{
+  width: 420px;             /* adjust width as needed */
+  max-width: 100%;
+  height: 44px;
+  padding: 8px 12px;
+  font-size: 16px;
+  border: 1px solid var(--light-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+}
+.att-inline-actions{
+  display: flex;
+  gap: 12px;
+}
+
+/* Stack nicely on small screens */
+@media (max-width: 640px){
+  .att-inline{ flex-direction: column; align-items: flex-start; }
+  .att-inline-actions{ width: 100%; }
+}
+
+/* Staff Attendance (inline row) — make heights equal and drop buttons slightly */
+.att-inline-select{
+  height: 48px;                 /* match button height */
+}
+
+.att-inline .primary-btn,
+.att-inline .back-btn{
+  height: 48px;                 /* match select height */
+}
+
+/* Small vertical nudge so the buttons sit a bit lower next to the select */
+.att-inline-actions{
+  margin-top: 4px;              /* tweak 2–6px to taste */
+}
+
+/* Optional: if the select still looks taller on macOS, align by baseline */
+@supports (align-items: baseline){
+  .att-inline{ align-items: baseline; }
+}
+
+.attendance-table th:last-child,
+.attendance-table td:last-child{
+  white-space: nowrap;   /* keep header/value on one line */
+}
+
+/* Member searchable picker */
+.member-picker{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.member-filter{
+  height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--light-border);
+  border-radius: 10px;
+  font-size: 16px;
+}
+.member-picker select{
+  height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--light-border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 16px;
+}
+
+/* Small screens: stack filter + select */
+@media (max-width: 700px){
+  .member-picker{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb;
+}
+.brand { font-weight: 700; font-size: 18px; color: #111827; }
+.nav { display: flex; gap: 12px; }
+.nav-link { color: #374151; text-decoration: none; padding: 6px 10px; border-radius: 6px; }
+.nav-link-active { background: #111827; color: #fff; }
+.app-main { padding: 20px; }

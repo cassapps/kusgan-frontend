@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "../styles.css";
 import { fetchAttendance, clockIn, clockOut } from "../api/sheets";
 
@@ -47,35 +47,20 @@ const durationHours = (hmIn, hmOut) => {
   return Math.round(hrs * 100) / 100;
 };
 
-// === Manila timezone helpers (safe + self-contained) ===
+// === Manila timezone helpers (keep) ===
 const MANILA_TZ = "Asia/Manila";
+
+// Parse many inputs, and keep calendar days stable for "YYYY-MM-DD"
 const toManilaDate = (value) => {
   if (!value) return null;
-  const s = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const [y, m, d] = s.split("-").map(Number);
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const [y, m, d] = value.split("-").map(Number);
+    // Create an instant that formats to the same calendar day in Manila
     return new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
   }
-  return new Date(s);
+  return new Date(value);
 };
-const manilaTodayYMD = () =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: MANILA_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-const fmtManilaDate = (value) => {
-  const d = toManilaDate(value);
-  if (!d || isNaN(d)) return "";
-  const s = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: MANILA_TZ,
-  }).format(d);
-  return s.replace(" ", "-");
-};
+
 const fmtManilaTime = (value) => {
   const d = toManilaDate(value);
   if (!d || isNaN(d)) return "—";
@@ -86,73 +71,158 @@ const fmtManilaTime = (value) => {
     timeZone: MANILA_TZ,
   }).format(d);
 };
-const toYMD = (value) => {
-  if (!value) return "";
-  const s = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = toManilaDate(s);
+
+const fmtManilaDate = (value) => {
+  const d = toManilaDate(value);
   if (!d || isNaN(d)) return "";
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: MANILA_TZ,
+  // "Nov 1, 2025" -> "Nov-1, 2025"
+  const s = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+    timeZone: MANILA_TZ,
   }).format(d);
+  return s.replace(" ", "-");
 };
+
+// If you need today's date fallback in Manila
+const nowManila = () => Date.now();
 
 // --- Time parsing/normalization helpers ---
 const HM_RE = /^(\d{1,2}):(\d{2})$/;
+
+// Build an ISO string pinned to Manila for a given y-m-d + "HH:mm"
 const hmToIsoManila = (ymd, hm) => {
   const m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const t = String(hm || "").match(HM_RE);
   if (!m || !t) return "";
   const [_, y, mo, d] = m;
   const [__, H, M] = t;
+  // +08:00 ensures it’s interpreted as Manila time
   return `${y}-${mo}-${d}T${H.padStart(2, "0")}:${M}:00+08:00`;
 };
+
+// Normalize any time cell to an ISO string (when possible) for display
 const normalizeToIso = (ymd, val) => {
   if (!val) return "";
   if (HM_RE.test(String(val))) return hmToIsoManila(ymd, val);
   const d = new Date(val);
-  return isNaN(d) ? "" : d.toISOString();
+  return isNaN(d) ? "" : d.toISOString(); // keep actual instant
 };
+
+// Compute duration in hours between two times
+// Accepts "HH:mm", ISO strings, or mix. Uses date (ymd) for HH:mm.
 const hoursBetween = (ymd, tin, tout) => {
   if (!tin || !tout) return 0;
+
+  // Case 1: both HH:mm
   const a = String(tin).match(HM_RE);
   const b = String(tout).match(HM_RE);
   if (a && b) {
     const minutes = (h, m) => +h * 60 + +m;
     const mi = minutes(a[1], a[2]);
     const mo = minutes(b[1], b[2]);
+    // allow cross-midnight
     const end = mo >= mi ? mo : mo + 24 * 60;
     return (end - mi) / 60;
   }
+
+  // Case 2: at least one is a full date/time
   const iIso = a ? hmToIsoManila(ymd, `${a[1]}:${a[2]}`) : String(tin);
   const oIso = b ? hmToIsoManila(ymd, `${b[1]}:${b[2]}`) : String(tout);
   const di = new Date(iIso);
   const do_ = new Date(oIso);
   if (isNaN(di) || isNaN(do_)) return 0;
   const ms = do_.getTime() - di.getTime();
+  // allow cross-midnight
   const fixed = ms >= 0 ? ms : ms + 24 * 60 * 60 * 1000;
   return fixed / 3600000;
+};
+
+// PH date helpers for last 20 days and formatting
+const phYMDFrom = (base = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: MANILA_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(base);
+  const y = parts.find((p) => p.type === "year")?.value || "0000";
+  const m = parts.find((p) => p.type === "month")?.value || "01";
+  const d = parts.find((p) => p.type === "day")?.value || "01";
+  return `${y}-${m}-${d}`;
+};
+const phTodayYMD = () => phYMDFrom(new Date());
+const lastNDatesYMD_PH = (n = 20) => {
+  const out = [];
+  const nowPH = new Date(new Date().toLocaleString("en-US", { timeZone: MANILA_TZ }));
+  for (let i = 0; i < n; i++) {
+    const d = new Date(nowPH);
+    d.setDate(nowPH.getDate() - i);
+    out.push(phYMDFrom(d));
+  }
+  return out;
+};
+const monDashYear = (ymd) => {
+  const m = String(ymd || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(ymd || "");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const month = months[parseInt(m[2], 10) - 1] || "Jan";
+  const day = parseInt(m[3], 10);
+  const year = m[1];
+  return `${month}-${day}, ${year}`; // e.g., "Nov-2, 2025"
+};
+
+// Treat "", -, – , — as empty
+const isEmptyOut = (v) => {
+  const s = String(v ?? "").trim();
+  return !s || s === "-" || s === "–" || s === "—";
+};
+// ms until next 23:59:00 PH
+const msUntilNext2359PH = () => {
+  const nowPH = new Date(new Date().toLocaleString("en-US", { timeZone: MANILA_TZ }));
+  const tgt = new Date(nowPH);
+  tgt.setHours(23, 59, 0, 0);
+  if (tgt <= nowPH) tgt.setDate(tgt.getDate() + 1);
+  return tgt - nowPH + 500;
 };
 
 export default function StaffAttendance() {
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [serverDate, setServerDate] = useState(""); // YYYY-MM-DD from server
-  const [rows, setRows] = useState([]); // raw rows from Attendance (Date, Staff, TimeIn, TimeOut, NoOfHours)
+  const [rows, setRows] = useState([]); // raw rows from multiple days
+  const timerRef = useRef(null);
 
-  // Load today's attendance (server decides the date/time in Manila)
+  // Load last 20 PH days
   async function load() {
+    setBusy(true);
     setError("");
     try {
-      const res = await fetchAttendance(); // no date param -> server uses Manila "today"
-      setServerDate(res?.date || "");
-      setRows(res?.rows || res?.data || []);
+      const days = lastNDatesYMD_PH(20);
+      const resList = await Promise.all(days.map((d) => fetchAttendance(d).catch(() => null)));
+      const all = [];
+      resList.forEach((res, idx) => {
+        const ymd = days[idx];
+        const rws = res?.rows || res?.data || [];
+        rws.forEach((r) => all.push({ ...r, Date: r?.Date || ymd }));
+      });
+      // newest date first, then STAFF order, then name, then TimeIn
+      all.sort((a, b) => {
+        const ad = (a.Date || "").localeCompare(b.Date || "");
+        if (ad !== 0) return -ad; // desc
+        const ia = STAFF.indexOf(String(a.Staff || "").trim());
+        const ib = STAFF.indexOf(String(b.Staff || "").trim());
+        if (ia !== ib) return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+        const as = String(a.Staff || "").localeCompare(String(b.Staff || ""));
+        if (as !== 0) return as;
+        return String(a.TimeIn || "").localeCompare(String(b.TimeIn || ""));
+      });
+      setRows(all);
     } catch (e) {
       setError(e.message || "Failed to load attendance");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -160,138 +230,261 @@ export default function StaffAttendance() {
     load();
   }, []);
 
-  // FIX: do not reference serverDate (it was undefined and crashed)
-  const todayYMD = React.useMemo(() => manilaTodayYMD(), []);
-
-  const grouped = React.useMemo(() => {
+  // Group by staff + date (one table row per staff per day)
+  const grouped = useMemo(() => {
+    // Map key: `${date}|${staff}`
     const map = new Map();
+
     for (const r of rows) {
       const staff = String(r.Staff ?? "").trim();
       if (!staff) continue;
 
-      const rowYMD = toYMD(r.Date);
-      if (rowYMD && rowYMD !== todayYMD) continue; // today only
-
+      const dateStr = String(r.Date ?? "").slice(0, 10); // "YYYY-MM-DD"
       const tinRaw = String(r.TimeIn ?? "").trim();
       const toutRaw = String(r.TimeOut ?? "").trim();
 
-      let obj = map.get(staff);
+      const key = `${dateStr}|${staff}`;
+      let obj = map.get(key);
       if (!obj) {
-        obj = { staff, date: todayYMD, sessions: [], totalHours: 0, clockedIn: false, _seen:new Set() };
-        map.set(staff, obj);
+        obj = { staff, date: dateStr, sessions: [], totalHours: 0, clockedIn: false, _seen: new Set() };
+        map.set(key, obj);
       }
 
-      const tinISO = normalizeToIso(todayYMD, tinRaw);
-      const toutISO = normalizeToIso(todayYMD, toutRaw);
-      const key = `${tinISO || tinRaw}|${toutISO || toutRaw}`;
-      if (obj._seen.has(key)) continue;
-      obj._seen.add(key);
+      // Normalized ISO strings for display
+      const tinISO = normalizeToIso(dateStr, tinRaw);
+      const toutISO = normalizeToIso(dateStr, toutRaw);
+
+      // De-duplicate by unique pair (same in/out only once)
+      const dedupeKey = `${tinISO || tinRaw}|${toutISO || toutRaw}`;
+      if (obj._seen.has(dedupeKey)) continue;
+      obj._seen.add(dedupeKey);
 
       if (tinRaw) obj.sessions.push({ in: tinISO || tinRaw, out: toutISO || "" });
 
-      const hrs = hoursBetween(todayYMD, tinRaw, toutRaw);
+      const hrs = hoursBetween(dateStr, tinRaw, toutRaw);
       if (hrs > 0) obj.totalHours = Math.round((obj.totalHours + hrs) * 100) / 100;
 
       if (tinRaw && !toutRaw) obj.clockedIn = true;
     }
 
+    // sort sessions by time-in
     const getSortVal = (t) => {
       if (!t) return 0;
-      if (HM_RE.test(t)) { const [, h, m] = t.match(HM_RE); return +h*60 + +m; }
-      const d = new Date(t); return isNaN(d) ? 0 : d.getTime();
+      if (HM_RE.test(t)) {
+        const [, h, m] = t.match(HM_RE);
+        return +h * 60 + +m;
+      }
+      const d = new Date(t);
+      return isNaN(d) ? 0 : d.getTime();
     };
-    for (const v of map.values()) {
+    const arr = Array.from(map.values());
+    for (const v of arr) {
       v.sessions.sort((a, b) => getSortVal(a.in) - getSortVal(b.in));
       delete v._seen;
     }
 
-    // FIX: guard missing STAFF constant
-    const ORDER = Array.isArray(globalThis.STAFF) ? globalThis.STAFF : [];
-    const arr = Array.from(map.values());
-    if (ORDER.length){
-      arr.sort((a, b) => {
-        const ia = ORDER.indexOf(a.staff); const ib = ORDER.indexOf(b.staff);
-        const aa = ia === -1 ? 9999 : ia; const bb = ib === -1 ? 9999 : ib;
-        return aa - bb || a.staff.localeCompare(b.staff);
-      });
-    } else {
-      arr.sort((a,b)=> a.staff.localeCompare(b.staff));
-    }
+    // Order by date desc, then STAFF order, then name
+    arr.sort((a, b) => {
+      const ad = (a.date || "").localeCompare(b.date || "");
+      if (ad !== 0) return -ad;
+      const ia = STAFF.indexOf(a.staff);
+      const ib = STAFF.indexOf(b.staff);
+      if (ia !== ib) return (ia === -1 ? 9999 : ia) - (ib === -1 ? 9999 : ib);
+      return a.staff.localeCompare(b.staff);
+    });
+
     return arr;
-  }, [rows, todayYMD]);
+  }, [rows]);
+
+  // Only consider “clocked in” for today (PH) to enable/disable buttons
+  const isClockedInToday = (name) => {
+    const today = phTodayYMD();
+    return grouped.some((g) => g.staff === name && g.date === today && g.clockedIn);
+  };
+
+  const onSignIn = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await clockIn({ staff: selected });
+      if (!res?.ok) throw new Error(res?.error || "Clock-in failed");
+      await load();
+    } catch (e) {
+      setError(e.message || "Failed to sign in");
+      alert(e.message || "Failed to sign in");
+      console.error("clockIn error:", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSignOut = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await clockOut({ staff: selected });
+      if (!res?.ok) throw new Error(res?.error || "Clock-out failed");
+      await load();
+    } catch (e) {
+      setError(e.message || "Failed to sign out");
+      alert(e.message || "Failed to sign out");
+      console.error("clockOut error:", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Best-effort auto sign-out at 11:59 PM Manila (app must be open)
+  useEffect(() => {
+    const schedule = () => {
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(async () => {
+        const today = phTodayYMD();
+        const openStaff = Array.from(
+          new Set(
+            grouped
+              .filter((g) => g.date === today && g.clockedIn)
+              .map((g) => g.staff)
+          )
+        );
+        if (openStaff.length) {
+          try {
+            await Promise.all(openStaff.map((s) => clockOut({ staff: s }).catch(() => null)));
+          } catch {}
+          await load();
+        }
+        schedule(); // schedule next day
+      }, msUntilNext2359PH());
+    };
+    schedule();
+    return () => clearTimeout(timerRef.current);
+  }, [grouped]); // reschedule if the set of open staff changes
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">Staff Attendance</h1>
+    <div className="content">
+      <h2>Staff Attendance</h2>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700">
-          Select Staff
-        </label>
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
-        >
-          <option value="">-- All Staff --</option>
-          {STAFF.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
-
-      <div className="grid grid-cols-5 gap-4 text-center font-semibold text-gray-700 border-b pb-2 mb-2">
-        <div>Date</div>
-        <div>Staff</div>
-        <div>Time In</div>
-        <div>Time Out</div>
-        <div>Total Hours</div>
-      </div>
-
-      {grouped.length === 0 ? (
-        <div className="text-center text-gray-500 py-4" colSpan={5}>
-          No attendance records found.
+      {error && (
+        <div className="small-error" style={{ marginBottom: 12 }}>
+          {error}
         </div>
-      ) : (
-        grouped
-          .filter((r) => !selected || r.staff === selected)
-          .map((r) => (
-            <div
-              key={r.staff}
-              className="grid grid-cols-5 gap-4 text-center py-2 border-b"
-            >
-              <div className="text-gray-900 font-medium">
-                {fmtManilaDate(r.date)}
-              </div>
-              <div className="text-gray-900">{r.staff}</div>
-              <div className="text-gray-900">
-                {r.sessions.length > 0
-                  ? fmtManilaTime(r.sessions[0].in)
-                  : "—"}
-              </div>
-              <div className="text-gray-900">
-                {r.sessions.length > 0
-                  ? fmtManilaTime(r.sessions[r.sessions.length - 1].out)
-                  : "—"}
-              </div>
-              <div className="text-gray-900">
-                {r.totalHours > 0 ? r.totalHours : "—"}
-              </div>
-            </div>
-          ))
       )}
 
-      <div className="mt-4">
-        <button
-          onClick={load}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md shadow hover:bg-blue-700"
-        >
-          Refresh
-        </button>
+      <div
+        style={{
+          background: "var(--panel)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Select Staff Member</div>
+
+        {/* Inline row: dropdown + buttons (left-aligned) */}
+        <div className="att-inline">
+          <select
+            className="att-inline-select"
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            disabled={busy}
+          >
+            <option value="">Choose staff member</option>
+            {STAFF.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          <div className="att-inline-actions">
+            <button
+              className="primary-btn"
+              onClick={onSignIn}
+              disabled={!selected || busy || isClockedInToday(selected)}
+              title={isClockedInToday(selected) ? "Already signed in today" : "Sign In"}
+            >
+              ⏎ Sign In
+            </button>
+            <button
+              className="back-btn"
+              onClick={onSignOut}
+              disabled={!selected || busy || !isClockedInToday(selected)}
+              title={!isClockedInToday(selected) ? "Not currently signed in" : "Sign Out"}
+            >
+              ⏏ Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "var(--panel)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Attendance Records</div>
+
+        <table className="attendance-table aligned">
+          <colgroup>
+            <col style={{ width: "calc(var(--att-c1) * 1%)" }} />
+            <col style={{ width: "calc(var(--att-c2) * 1%)" }} />
+            <col style={{ width: "calc(var(--att-c3) * 1%)" }} />
+            <col style={{ width: "calc(var(--att-c4) * 1%)" }} />
+            <col style={{ width: "calc(var(--att-c5) * 1%)" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Staff Name</th>
+              <th>Date</th>
+              <th>Sign In</th>
+              <th>Sign Out</th>
+              <th style={{ textAlign: "right" }}>Total Hours</th>
+            </tr>
+          </thead>
+          <tbody>
+            {grouped.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ color: "var(--muted)", textAlign: "center", padding: 16 }}>
+                  No records in the last 20 days.
+                </td>
+              </tr>
+            ) : (
+              grouped.map((g) => (
+                <tr key={`${g.date}|${g.staff}`}>
+                  <td style={{ fontWeight: 700 }}>{g.staff}</td>
+                  <td>{monDashYear(g.date)}</td>
+                  <td>
+                    {g.sessions.length
+                      ? g.sessions.map((s, i) => (
+                          <div key={i} style={{ lineHeight: "20px" }}>
+                            {fmtManilaTime(s.in)}
+                          </div>
+                        ))
+                      : "—"}
+                  </td>
+                  <td>
+                    {g.sessions.length
+                      ? g.sessions.map((s, i) => (
+                          <div key={i} style={{ lineHeight: "20px" }}>
+                            {s.out ? fmtManilaTime(s.out) : <span style={{ color: "var(--muted)" }}>—</span>}
+                          </div>
+                        ))
+                      : "—"}
+                  </td>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <span className="badge">{g.totalHours.toFixed(2)}</span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -5,7 +5,6 @@ import {
   addPayment,
   fetchPricing,
   fetchMembers,
-  fetchPrimaryAttendant,
 } from "../api/sheets";
 
 const MANILA_TZ = "Asia/Manila";
@@ -80,7 +79,6 @@ export default function Payments() {
   const [rows, setRows] = useState([]);
   const [pricing, setPricing] = useState([]); // [{Particulars, Gym Membership, Coach Subscription, Cost, Validity}]
   const [members, setMembers] = useState([]); // normalized below
-  const [primaryAttendant, setPrimaryAttendant] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -92,7 +90,6 @@ export default function Payments() {
     Date: manilaTodayYMD(),
     Time: manilaNowHM(),
     MemberID: "",
-    PrimaryAttendant: "", // will prefill
     Particulars: "",
     StartDate: manilaTodayYMD(), // editable
     EndDate: "", // computed
@@ -111,15 +108,11 @@ export default function Payments() {
     }
   };
 
-  // Load metadata: pricing, members, primary attendant
+  // Load metadata: pricing, members
   const loadMeta = async () => {
     setError("");
     try {
-      const [p, m, a] = await Promise.all([
-        fetchPricing(),
-        fetchMembers(),
-        fetchPrimaryAttendant(),
-      ]);
+      const [p, m] = await Promise.all([fetchPricing(), fetchMembers()]);
 
       const pRows = p?.rows || p?.data || p || [];
       setPricing(pRows);
@@ -132,11 +125,6 @@ export default function Payments() {
         last: r.LastName || r.Last || r.Surname || r.last || "",
       }));
       setMembers(mRows);
-
-      const name =
-        a?.name || a?.primary || a?.PrimaryAttendant || a?.data?.name || "";
-      setPrimaryAttendant(name || "");
-      setForm((f) => ({ ...f, PrimaryAttendant: name || "" }));
     } catch (e) {
       setError(e.message || "Failed to load pricing/members");
     }
@@ -190,7 +178,6 @@ export default function Payments() {
         Date: form.Date,
         Time: form.Time,
         MemberID: form.MemberID,
-        PrimaryAttendant: form.PrimaryAttendant,
         Particulars: form.Particulars,
         StartDate: form.StartDate || "",
         EndDate: form.EndDate || "",
@@ -302,12 +289,6 @@ export default function Payments() {
             </div>
           </div>
 
-          {/* Primary attendant (prefill, locked) */}
-          <label className="fg-item">
-            <span>Primary Attendant</span>
-            <input type="text" value={primaryAttendant} readOnly disabled />
-          </label>
-
           {/* Particulars (from Pricing) */}
           <label className="fg-item">
             <span>Particulars</span>
@@ -398,7 +379,6 @@ export default function Payments() {
               <th>Date</th>
               <th>Time</th>
               <th>MemberID</th>
-              <th>Primary Attendant</th>
               <th>Particulars</th>
               <th>Start Date</th>
               <th>End Date</th>
@@ -409,7 +389,7 @@ export default function Payments() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ color: "var(--muted)", textAlign: "center", padding: 16 }}>
+                <td colSpan={8} style={{ color: "var(--muted)", textAlign: "center", padding: 16 }}>
                   No payments found.
                 </td>
               </tr>
@@ -419,7 +399,6 @@ export default function Payments() {
                   <td>{fmtManilaDate(r.Date)}</td>
                   <td>{fmtManilaTime(`${r.Date}T${r.Time || "00:00"}:00+08:00`)}</td>
                   <td>{r.MemberID}</td>
-                  <td>{r.PrimaryAttendant}</td>
                   <td>{r.Particulars}</td>
                   <td>{r.StartDate ? fmtManilaDate(r.StartDate) : "—"}</td>
                   <td>{r.EndDate ? fmtManilaDate(r.EndDate) : "—"}</td>

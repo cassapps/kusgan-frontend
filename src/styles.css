@@ -732,14 +732,14 @@ button[disabled],
   }
 }
 
-/* ---------- Header ---------- */
-.app-header {
-  position: sticky; top: 0; z-index: 10;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb;
+/* Width of your sidebar (adjust if yours is different) */
+:root { --sidebar-width: 232px; }
+
+/* App shell + content offset so content doesn't go under the sidebar */
+.app-shell { position: relative; min-height: 100vh; }
+.app-content { margin-left: var(--sidebar-width); padding: 16px; }
+
+/* On small screens, let content fill the width */
+@media (max-width: 768px) {
+  .app-content { margin-left: 0; }
 }
-.brand { font-weight: 700; font-size: 18px; color: #111827; }
-.nav { display: flex; gap: 12px; }
-.nav-link { color: #374151; text-decoration: none; padding: 6px 10px; border-radius: 6px; }
-.nav-link-active { background: #111827; color: #fff; }
-.app-main { padding: 20px; }

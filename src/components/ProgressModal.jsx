@@ -59,19 +59,19 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   const dayNo = useMemo(() => inclusiveDayNo(memberSinceYMD, today), [memberSinceYMD, today]);
 
   // Form values (use metric UI as commonly used in PH: kg & cm)
-  const [kg, setKg] = useState(0);
-  const [cm, setCm] = useState(0);
-  const [muscle, setMuscle] = useState(0);
-  const [bodyFat, setBodyFat] = useState(0);
-  const [visceralFat, setVisceralFat] = useState(0);
-  const [chest, setChest] = useState(0);
-  const [waist, setWaist] = useState(0);
-  const [hips, setHips] = useState(0);
-  const [shoulders, setShoulders] = useState(0);
-  const [arms, setArms] = useState(0);
-  const [forearms, setForearms] = useState(0);
-  const [thighs, setThighs] = useState(0);
-  const [calves, setCalves] = useState(0);
+  const [kg, setKg] = useState("");
+  const [cm, setCm] = useState("");
+  const [muscle, setMuscle] = useState("");
+  const [bodyFat, setBodyFat] = useState("");
+  const [visceralFat, setVisceralFat] = useState("");
+  const [chest, setChest] = useState("");
+  const [waist, setWaist] = useState("");
+  const [hips, setHips] = useState("");
+  const [shoulders, setShoulders] = useState("");
+  const [arms, setArms] = useState("");
+  const [forearms, setForearms] = useState("");
+  const [thighs, setThighs] = useState("");
+  const [calves, setCalves] = useState("");
   const [bp, setBp] = useState("");
   const [rhr, setRhr] = useState("");
   const [comments, setComments] = useState("");
@@ -95,9 +95,9 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   useEffect(() => {
     if (!open) return;
     // reset when opened
-    setKg(0); setCm(0); setMuscle(0); setBodyFat(0); setVisceralFat(0);
-    setChest(0); setWaist(0); setHips(0); setShoulders(0);
-    setArms(0); setForearms(0); setThighs(0); setCalves(0);
+  setKg(""); setCm(""); setMuscle(""); setBodyFat(""); setVisceralFat("");
+  setChest(""); setWaist(""); setHips(""); setShoulders("");
+  setArms(""); setForearms(""); setThighs(""); setCalves("");
     setBp(""); setRhr(""); setComments("");
     setPhotos([]);
     setActiveIdx(-1);
@@ -197,7 +197,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
             <div style={{ fontWeight: 700 }}>{memberId}</div>
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Date (PH)</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Date</div>
             <div style={{ fontWeight: 700 }}>{displayManila(today)}</div>
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
@@ -210,7 +210,13 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           <label className="field"><span className="label">Weight (kg)</span><input type="number" step="0.1" min="0" value={kg} onChange={(e)=>setKg(e.target.value)} /></label>
           <label className="field"><span className="label">Height (cm)</span><input type="number" step="0.1" min="0" value={cm} onChange={(e)=>setCm(e.target.value)} /></label>
-          <div className="field"><span className="label">BMI (auto)</span><input value={bmi || ""} readOnly /></div>
+          {/* Read-only field styled like top info cards */}
+          <div>
+            <div className="label" style={{ marginBottom: 6 }}>BMI (auto)</div>
+            <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, fontWeight: 700 }}>
+              {bmi || "-"}
+            </div>
+          </div>
 
           <label className="field"><span className="label">Muscle Mass</span><input type="number" step="0.1" min="0" value={muscle} onChange={(e)=>setMuscle(e.target.value)} /></label>
           <label className="field"><span className="label">Body Fat (%)</span><input type="number" step="0.1" min="0" value={bodyFat} onChange={(e)=>setBodyFat(e.target.value)} /></label>
@@ -286,7 +292,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
         {/* Comments */}
         <div className="field" style={{ marginTop: 12 }}>
           <span className="label">Comments</span>
-          <textarea rows={3} value={comments} onChange={(e)=>setComments(e.target.value)} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", padding: 10, fontFamily: "inherit", resize: "vertical" }} />
+          <textarea rows={4} value={comments} onChange={(e)=>setComments(e.target.value)} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", padding: 12, fontFamily: "inherit", resize: "vertical", fontSize: 16 }} />
         </div>
 
         <div style={{ marginTop: 12, display: "flex", gap: 10, justifyContent: "flex-end" }}>

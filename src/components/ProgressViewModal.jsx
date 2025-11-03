@@ -25,6 +25,7 @@ const pick = (o, keys=[]) => {
 export default function ProgressViewModal({ open, onClose, row }){
   if (!open) return null;
   const r = row || {};
+  const memberId = pick(r, ["MemberID","memberid","member_id","id"]);
   const date = pick(r, ["Date","date","recorded","log_date","timestamp"]);
   const no = pick(r, ["No","no","entry_no","seq","number"]);
   const weight = pick(r, ["Weight (lbs)","Weight(lbs)","Weight","Weight_lbs","weight","weight_lbs","weight_(lbs)"]);
@@ -55,29 +56,45 @@ export default function ProgressViewModal({ open, onClose, row }){
           <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
         </div>
 
+        {/* Top info row matching Progress entry: Member ID, Date, No. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Member ID</div>
+            <div style={{ fontWeight: 700 }}>{memberId || "-"}</div>
+          </div>
+          <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Date</div>
+            <div style={{ fontWeight: 700 }}>{date || "-"}</div>
+          </div>
+          <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>No.</div>
+            <div style={{ fontWeight: 700 }}>{no || "-"}</div>
+          </div>
+        </div>
+
+        {/* Read-only boxes for all remaining fields (uniform scheme) */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:12 }}>
-          <div className="field"><span className="label">Date</span><input readOnly value={date||""} /></div>
-          <div className="field"><span className="label">No.</span><input readOnly value={no||""} /></div>
-          <div className="field"><span className="label">Weight</span><input readOnly value={weight||""} /></div>
-          <div className="field"><span className="label">BMI</span><input readOnly value={bmi||""} /></div>
-          <div className="field"><span className="label">Muscle Mass</span><input readOnly value={muscle||""} /></div>
-          <div className="field"><span className="label">Body Fat</span><input readOnly value={bodyfat||""} /></div>
-          <div className="field"><span className="label">Visceral Fat</span><input readOnly value={visceral||""} /></div>
-          <div className="field"><span className="label">Chest</span><input readOnly value={chest||""} /></div>
-          <div className="field"><span className="label">Waist</span><input readOnly value={waist||""} /></div>
-          <div className="field"><span className="label">Hips</span><input readOnly value={hips||""} /></div>
-          <div className="field"><span className="label">Shoulders</span><input readOnly value={shoulders||""} /></div>
-          <div className="field"><span className="label">Arms</span><input readOnly value={arms||""} /></div>
-          <div className="field"><span className="label">Forearms</span><input readOnly value={forearms||""} /></div>
-          <div className="field"><span className="label">Thighs</span><input readOnly value={thighs||""} /></div>
-          <div className="field"><span className="label">Calves</span><input readOnly value={calves||""} /></div>
-          <div className="field"><span className="label">Blood Pressure</span><input readOnly value={bp||""} /></div>
-          <div className="field"><span className="label">Resting Heart Rate</span><input readOnly value={rhr||""} /></div>
+          {[
+            ["Weight", weight],["BMI", bmi],["Muscle Mass", muscle],
+            ["Body Fat", bodyfat],["Visceral Fat", visceral],["Chest", chest],
+            ["Waist", waist],["Hips", hips],["Shoulders", shoulders],
+            ["Arms", arms],["Forearms", forearms],["Thighs", thighs],
+            ["Calves", calves],["Blood Pressure", bp],["Resting Heart Rate", rhr],
+          ].map(([label, val]) => (
+            <div key={label}>
+              <div className="label" style={{ marginBottom: 6 }}>{label}</div>
+              <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, fontWeight: 700 }}>
+                {(!val || String(val).trim() === "0") ? "-" : String(val)}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="field" style={{ marginTop: 12 }}>
           <span className="label">Comments</span>
-          <textarea readOnly rows={3} value={comments||""} style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb", padding: 10, fontFamily: "inherit" }} />
+          <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, fontSize: 16, minHeight: 72 }}>
+            {comments ? String(comments) : "-"}
+          </div>
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:12, marginTop:12 }}>

@@ -3,6 +3,7 @@ import PaymentModal from "../components/PaymentModal";
 import EditMemberModal from "../components/EditMemberModal";
 import QrCodeModal from "../components/QrCodeModal";
 import ProgressModal from "../components/ProgressModal";
+import ProgressViewModal from "../components/ProgressViewModal";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   fetchMembers,
@@ -276,6 +277,8 @@ export default function MemberDetail() {
   const [openEdit, setOpenEdit] = useState(false);
   const [openQr, setOpenQr] = useState(false);
   const [openProgress, setOpenProgress] = useState(false);
+  const [openProgView, setOpenProgView] = useState(false);
+  const [viewProgressIndex, setViewProgressIndex] = useState(-1);
   const [imgFailed, setImgFailed] = useState(false);
 
   // Reset image-failed flag whenever the computed photo URL changes
@@ -502,6 +505,13 @@ export default function MemberDetail() {
         onSaved={() => { setOpenProgress(false); refreshBundle(); }}
       />
 
+      {/* Progress view-only modal */}
+      <ProgressViewModal
+        open={openProgView}
+        onClose={() => { setOpenProgView(false); setViewProgressIndex(-1); }}
+        row={viewProgressIndex >= 0 ? progress[viewProgressIndex] : null}
+      />
+
       <h3>Gym Visits</h3>
       <table className="aligned">
         <thead>
@@ -538,12 +548,18 @@ export default function MemberDetail() {
           ) : progress.slice(0, 30).map((r, i) => {
             const d = asDate(firstOf(r, ["date","recorded","log_date","timestamp"]));
             const no = firstOf(r, ["no","entry_no","seq","number"]);
-            const weight = firstOf(r, ["weight","weight_kg","weight_lbs"]);
+            const weight = firstOf(r, [
+              "weight","weight_kg","weight_lbs","weight_(lbs)","weight_(kg)",
+              "weight(lbs)","weightkg","weightlbs"
+            ]);
             const bmi = firstOf(r, ["bmi"]);
             const muscle = firstOf(r, ["musclemass","muscle_mass","muscle"]);
             const bodyfat = firstOf(r, ["bodyfat","body_fat","bf"]);
             return (
-              <tr key={i}>
+              <tr key={i} style={{ cursor: "pointer" }} onClick={() => {
+                setViewProgressIndex(i);
+                setOpenProgView(true);
+              }}>
                 <td>{fmtDate(d)}</td>
                 <td>{display(no)}</td>
                 <td>{display(weight)}</td>

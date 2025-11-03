@@ -30,6 +30,7 @@ export default function ProgressViewModal({ open, onClose, row }){
   const no = pick(r, ["No","no","entry_no","seq","number"]);
   const weight = pick(r, ["Weight (lbs)","Weight(lbs)","Weight","Weight_lbs","weight","weight_lbs","weight_(lbs)"]);
   const bmi = pick(r, ["BMI","bmi"]);
+  const height = pick(r, ["Height (inches)","Height(inches)","Height_in","height_in","height_inches"]);
   const muscle = pick(r, ["MuscleMass","muscle_mass","muscle","Muscle"]);
   const bodyfat = pick(r, ["BodyFat","body_fat","bf"]);
   const visceral = pick(r, ["VisceralFat","visceral_fat"]);
@@ -59,31 +60,31 @@ export default function ProgressViewModal({ open, onClose, row }){
         {/* Top info row matching Progress entry: Member ID, Date, No. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Member ID</div>
-            <div style={{ fontWeight: 700 }}>{memberId || "-"}</div>
+            <span style={{ fontSize: 14, fontStyle: "italic", color: "var(--muted)", display: "block", marginBottom: 4 }}>Member ID</span>
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{memberId || "-"}</div>
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Date</div>
-            <div style={{ fontWeight: 700 }}>{formatPH(dateRaw) || "-"}</div>
+            <span style={{ fontSize: 14, fontStyle: "italic", color: "var(--muted)", display: "block", marginBottom: 4 }}>Date</span>
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{formatPH(dateRaw) || "-"}</div>
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>No.</div>
-            <div style={{ fontWeight: 700 }}>{no || "-"}</div>
+            <span style={{ fontSize: 14, fontStyle: "italic", color: "var(--muted)", display: "block", marginBottom: 4 }}>No.</span>
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{no || "-"}</div>
           </div>
         </div>
 
         {/* Read-only boxes for all remaining fields (uniform scheme) */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:12 }}>
           {[
-            ["Weight", weight],["BMI", bmi],["Muscle Mass", muscle],
+            ["Weight", weight],["Height (in)", height],["BMI", bmi],["Muscle Mass", muscle],
             ["Body Fat", bodyfat],["Visceral Fat", visceral],["Chest", chest],
             ["Waist", waist],["Hips", hips],["Shoulders", shoulders],
             ["Arms", arms],["Forearms", forearms],["Thighs", thighs],
             ["Calves", calves],["Blood Pressure", bp],["Resting Heart Rate", rhr],
           ].map(([label, val]) => (
-            <div key={label}>
-              <div className="label" style={{ marginBottom: 6 }}>{label}</div>
-              <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, fontWeight: 700 }}>
+            <div key={label} className="field">
+              <span className="label" style={{ display: "block", marginBottom: 6 }}>{label}</span>
+              <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, fontWeight: 700, fontSize: 20 }}>
                 {(!val || String(val).trim() === "0") ? "-" : String(val)}
               </div>
             </div>

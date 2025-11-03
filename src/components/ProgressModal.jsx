@@ -210,9 +210,9 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           <label className="field"><span className="label">Weight (kg)</span><input type="number" step="0.1" min="0" value={kg} onChange={(e)=>setKg(e.target.value)} /></label>
           <label className="field"><span className="label">Height (cm)</span><input type="number" step="0.1" min="0" value={cm} onChange={(e)=>setCm(e.target.value)} /></label>
-          {/* Read-only field styled like top info cards */}
-          <div>
-            <div className="label" style={{ marginBottom: 6 }}>BMI (auto)</div>
+          {/* BMI read-only, but label styling same as other fields */}
+          <div className="field">
+            <span className="label">BMI</span>
             <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10, fontWeight: 700 }}>
               {bmi || "-"}
             </div>

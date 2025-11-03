@@ -138,9 +138,8 @@ export default function CameraModal({ open, onClose, onCapture }) {
   return (
     <div style={styles.overlay}>
       <div style={styles.modal}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontWeight: 800 }}>Camera</div>
-          <button className="button btn-lg" style={{ background: "#555" }} onClick={onClose}>Close</button>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 8 }}>
+          <button type="button" aria-label="Close" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
         </div>
 
         {/* Camera selector */}

@@ -190,6 +190,26 @@ function findLastOpenRow_(sh, header, staff, dateStr){
   return -1;
 }
 
+// Find last open GymEntries row for a member for a given date (no TimeOut yet)
+function findLastOpenGymRow_(sh, header, memberId, dateStr){
+  const dCol = header.indexOf('Date');
+  const mCol = header.indexOf('MemberID');
+  const outCol = header.indexOf('TimeOut');
+  if (dCol===-1 || mCol===-1 || outCol===-1) return -1;
+  const last = sh.getLastRow();
+  if (last <= 1) return -1;
+  const vals = sh.getRange(2,1,last-1,header.length).getValues();
+  const tId = String(memberId||'').trim().toLowerCase();
+  for (var i=vals.length-1;i>=0;i--){
+    const r = vals[i];
+    const rDate = ymdPH_(r[dCol]);
+    const rId = String(r[mCol]||'').trim().toLowerCase();
+    const rOut = String(r[outCol]||'').trim();
+    if (rId===tId && rDate===dateStr && !rOut) return i+2; // 2-based
+  }
+  return -1;
+}
+
 /***** PAYMENTS / PRICING / MEMBERS HELPERS *****/
 function listPayments_(){
   const sh = getSheet_('Payments');
@@ -329,6 +349,68 @@ function doPost(e){
         rowNumber = findLastOpenRow_(sh, header, staff, dateStr);
         if (rowNumber === -1){
           const obj = { Date: dateStr, Staff: staff, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
+          appendByHeader_(sh, header, obj);
+          rowNumber = sh.getLastRow();
+          created = true;
+        } else {
+          const row = sh.getRange(rowNumber, 1, 1, header.length).getValues()[0];
+          row[outCol] = timeNow;
+          const tin = String(row[inCol] || '');
+          const tout = String(row[outCol] || '');
+          if (hrsCol !== -1 && tin && tout) row[hrsCol] = sessionHours_(dateStr, tin, tout);
+            // Update Workouts field if present in payload and header
+            const workoutsCol = header.indexOf('Workouts');
+            if (workoutsCol !== -1 && (rowObj.Workouts || rowObj.workouts)) {
+              row[workoutsCol] = rowObj.Workouts || rowObj.workouts;
+            }
+          sh.getRange(rowNumber, 1, 1, header.length).setValues([row]);
+        }
+      }
+
+      try{ lock.releaseLock(); }catch(_){}
+      return asJson_({ ok:true, created, rowNumber, date:dateStr, time:timeNow });
+    }
+
+    // GymEntries ops (member check-in/out)
+    if (op === 'gymclockin' || op === 'gymclockout' || op === 'upsertgymentry'){
+      const sh = getSheet_('GymEntries');
+      const header = readHeader_(sh);
+      const lock = LockService.getScriptLock(); try{ lock.tryLock(5000); }catch(_){ }
+
+      const rowObj = data.row ? data.row : data;
+      const memberId = String(rowObj.MemberID || rowObj.memberId || rowObj.memberID || '').trim();
+      if (!memberId) return asJson_({ ok:false, error:'MemberID is required' });
+
+      const now = nowPH_();
+      const dateStr = ymdPH_(now);
+      const timeNow = hmPH_(now);
+
+      const wantsOut = (op === 'gymclockout') || (!!rowObj.TimeOut && String(rowObj.TimeOut).length>0);
+
+      let rowNumber = -1, created = false;
+
+      if (!wantsOut){
+          const obj = {
+            Date: dateStr,
+            MemberID: memberId,
+            TimeIn: timeNow,
+            TimeOut: '',
+            NoOfHours: '',
+            Coach: rowObj.Coach || rowObj.coach || '',
+            Focus: rowObj.Focus || rowObj.focus || '',
+            Comments: rowObj.Comments || rowObj.comments || ''
+          };
+          appendByHeader_(sh, header, obj);
+          rowNumber = sh.getLastRow();
+          created = true;
+      } else {
+        const inCol = header.indexOf('TimeIn');
+        const outCol = header.indexOf('TimeOut');
+        const hrsCol = header.indexOf('NoOfHours');
+
+        rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
+        if (rowNumber === -1){
+          const obj = { Date: dateStr, MemberID: memberId, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
           appendByHeader_(sh, header, obj);
           rowNumber = sh.getLastRow();
           created = true;

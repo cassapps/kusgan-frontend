@@ -366,8 +366,8 @@ export default function StaffAttendance() {
   }, [grouped]); // reschedule if the set of open staff changes
 
   return (
-    <div className="content">
-      <h2>Staff Attendance</h2>
+    <div className="dashboard-content">
+      <h2 className="dashboard-title">Staff Attendance</h2>
 
       {error && (
         <div className="small-error" style={{ marginBottom: 12 }}>
@@ -375,16 +375,8 @@ export default function StaffAttendance() {
         </div>
       )}
 
-      <div
-        style={{
-          background: "var(--panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Select Staff Member</div>
+      <div className="panel">
+        <div className="panel-header">Select Staff Member</div>
 
         {/* Inline row: dropdown + buttons (left-aligned) */}
         <div className="att-inline">
@@ -394,7 +386,7 @@ export default function StaffAttendance() {
             onChange={(e) => setSelected(e.target.value)}
             disabled={busy}
           >
-            <option value="">Choose staff member</option>
+            <option value=""></option>
             {STAFF.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -412,7 +404,7 @@ export default function StaffAttendance() {
               ⏎ Sign In
             </button>
             <button
-              className="back-btn"
+              className="primary-btn"
               onClick={onSignOut}
               disabled={!selected || busy || !isClockedInToday(selected)}
               title={!isClockedInToday(selected) ? "Not currently signed in" : "Sign Out"}
@@ -423,15 +415,8 @@ export default function StaffAttendance() {
         </div>
       </div>
 
-      <div
-        style={{
-          background: "var(--panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: 16,
-        }}
-      >
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Attendance Records</div>
+      <div className="panel">
+        <div className="panel-header">Attendance Records</div>
 
         <table className="attendance-table aligned">
           <colgroup>

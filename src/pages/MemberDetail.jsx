@@ -20,6 +20,27 @@ const firstOf = (o, ks) => ks.map((k) => o[k]).find((v) => v !== undefined && v 
 const asDate = (v) => { if (v instanceof Date) return v; const d = new Date(v); return isNaN(d) ? null : d; };
 // Manila timezone display helper: Mon-D, YYYY
 const MANILA_TZ = "Asia/Manila";
+// Format time as HH:MM AM/PM in Manila timezone
+const fmtTime = (t) => {
+  if (!t) return "-";
+  // If already in HH:MM AM/PM, return as-is
+  if (/^\d{1,2}:\d{2}\s?(AM|PM)$/i.test(t)) return t;
+  // If ISO string, parse and format
+  const d = new Date(t);
+  if (!isNaN(d)) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: MANILA_TZ, hour: "2-digit", minute: "2-digit", hour12: true }).format(d);
+  }
+  // If string like "07:53:00.000Z", try to extract HH:mm and infer AM/PM
+  const m = String(t).match(/(\d{2}):(\d{2})/);
+  if (m) {
+    let hour = parseInt(m[1], 10);
+    let min = m[2];
+    let ampm = hour >= 12 ? "PM" : "AM";
+    hour = hour % 12 || 12;
+    return `${hour}:${min} ${ampm}`;
+  }
+  return "-";
+};
 const fmtDate = (d) => {
   if (!d) return "-";
   const date = d instanceof Date ? d : new Date(d);
@@ -137,6 +158,7 @@ function computeStatus(payments, memberId, pricingRows) {
 }
 
 export default function MemberDetail() {
+  const [selectedVisit, setSelectedVisit] = useState(null);
   const { id: idParam, memberId: memberIdParam } = useParams();
   const navigate = useNavigate();
   const loc = useLocation();
@@ -269,6 +291,7 @@ export default function MemberDetail() {
   const id = String(firstOf(member, ["memberid","member_id","member_id_","id"]) || "").trim(); // define ID here
   const photoRaw = firstOf(member, ["photourl","photo_url","photo"]);
   const photoUrl = driveImg(photoRaw);
+  const photoSrc = driveThumb(photoUrl);
 
   const { membershipState, coachActive } = status;
   const studentRaw = firstOf(member, ["student"]);
@@ -384,7 +407,7 @@ export default function MemberDetail() {
         </div>
 
         <div className="cell street">
-          <div className="label">House No. / St. Name</div>
+          <div className="label">House No. / Street Name / Sitio</div>
           <div className="value">{display(street)}</div>
         </div>
         <div className="cell brgy">
@@ -412,27 +435,35 @@ export default function MemberDetail() {
         {/* Member ID hidden per request */}
           </div>
 
-  {/* Highlighted Membership & Coach sub-card */}
-  <div style={{ background: "#fff7fa", border: "1px solid #ffe4ec", borderRadius: 14, padding: 16, marginTop: 12, marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <div className="label" style={{ textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>Gym Membership</div>
-              <div className="value" style={{ marginBottom: 10 }}>
-                {membershipState === "active" && <span className="pill ok">Active</span>}
-                {membershipState === "expired" && <span className="pill bad">Expired</span>}
-                {membershipState == null && "-"}
-              </div>
-              <div className="label" style={{ fontSize: 12, marginTop: 6, marginBottom: 2 }}>Valid until</div>
-              <div className="value" style={{ fontWeight: 800 }}>{fmtDate(status.membershipEnd)}</div>
-            </div>
-            <div>
-              <div className="label" style={{ textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 6 }}>Coach Subscription</div>
-              <div className="value" style={{ marginBottom: 10 }}>{coachActive ? <span className="pill ok">Available</span> : "-"}</div>
-              <div className="label" style={{ fontSize: 12, marginTop: 6, marginBottom: 2 }}>Valid until</div>
-              <div className="value" style={{ fontWeight: 800 }}>{fmtDate(status.coachEnd)}</div>
-            </div>
+  {/* Status tiles: Gym & Coach with color coding */}
+  {(() => {
+    const memState = membershipState == null ? 'none' : membershipState; // 'active' | 'expired' | 'none'
+    const coachState = status.coachEnd ? (status.coachEnd >= new Date() ? 'active' : 'expired') : 'none';
+    return (
+      <div className="status-tiles">
+        <div className={`status-tile ${memState}`}>
+          <div className="title">Gym Membership</div>
+          <div style={{ marginBottom: 10 }}>
+            {memState === 'active' && <span className="pill ok">Active</span>}
+            {memState === 'expired' && <span className="pill bad">Expired</span>}
+            {memState === 'none' && <span className="pill" style={{ background:'#fff', color:'#555', borderColor:'#ddd' }}>None</span>}
           </div>
+          <div className="label">Valid until</div>
+          <div className="value">{fmtDate(status.membershipEnd)}</div>
         </div>
+        <div className={`status-tile ${coachState}`}>
+          <div className="title">Coach Subscription</div>
+          <div style={{ marginBottom: 10 }}>
+            {coachState === 'active' && <span className="pill ok">Active</span>}
+            {coachState === 'expired' && <span className="pill bad">Expired</span>}
+            {coachState === 'none' && <span className="pill" style={{ background:'#fff', color:'#555', borderColor:'#ddd' }}>None</span>}
+          </div>
+          <div className="label">Valid until</div>
+          <div className="value">{fmtDate(status.coachEnd)}</div>
+        </div>
+      </div>
+    );
+  })()}
 
           {/* Actions */}
           <div className="member-actions">
@@ -494,6 +525,10 @@ export default function MemberDetail() {
         onClose={() => setOpenQr(false)}
         memberId={id}
         nickname={nick || firstName || ""}
+        firstName={firstName || ""}
+        lastName={lastName || ""}
+        memberSince={memberSince || null}
+        photo={photoSrc}
       />
 
       {/* Progress modal */}
@@ -523,10 +558,10 @@ export default function MemberDetail() {
           {visits.length === 0 ? (
             <tr><td colSpan={6}>-</td></tr>
           ) : visits.slice(0, 30).map((v, i) => (
-            <tr key={i}>
+            <tr key={i} style={{ cursor: "pointer" }} onClick={() => setSelectedVisit(v)}>
               <td>{fmtDate(v.date)}</td>
-              <td>{display(v.timeIn)}</td>
-              <td>{display(v.timeOut)}</td>
+              <td>{fmtTime(v.timeIn)}</td>
+              <td>{fmtTime(v.timeOut)}</td>
               <td>{display(v.totalHours)}</td>
               <td>{display(v.coach)}</td>
               <td>{display(v.focus)}</td>
@@ -534,6 +569,26 @@ export default function MemberDetail() {
           ))}
         </tbody>
       </table>
+
+      {/* Modal for Workouts Done and Comments */}
+      {selectedVisit && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelectedVisit(null)}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, minWidth: 320, maxWidth: 420, boxShadow: "0 6px 24px rgba(0,0,0,.2)" }} onClick={e => e.stopPropagation()}>
+            <h4>Visit Details</h4>
+            <div><b>Date:</b> {fmtDate(selectedVisit.date)}</div>
+            <div><b>Time In:</b> {fmtTime(selectedVisit.timeIn)}</div>
+            <div><b>Time Out:</b> {fmtTime(selectedVisit.timeOut)}</div>
+            <div><b>Total Hours:</b> {display(selectedVisit.totalHours)}</div>
+            <div><b>Coach:</b> {display(selectedVisit.coach)}</div>
+            <div><b>Focus:</b> {display(selectedVisit.focus)}</div>
+            <div style={{ marginTop: 12 }}><b>Workouts Done:</b><br />{display(selectedVisit.workouts)}</div>
+            <div style={{ marginTop: 12 }}><b>Comments:</b><br />{display(selectedVisit.comments)}</div>
+            <div style={{ textAlign: "right", marginTop: 18 }}>
+              <button className="primary-btn" onClick={() => setSelectedVisit(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <h3>Progress</h3>
       <table className="aligned">
@@ -618,3 +673,6 @@ export default function MemberDetail() {
     </div>
   );
 }
+
+// Named exports for shared formatting helpers used across pages
+export { fmtTime, fmtDate, display, MANILA_TZ };

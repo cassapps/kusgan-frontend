@@ -136,6 +136,21 @@ export async function upsertAttendance(row) {
 // Gym Entries
 export async function fetchGymEntries() { return fetchSheet("GymEntries"); }
 export async function addGymEntry(row) { return insertRow("GymEntries", row); }
+export async function gymClockIn(memberId, extra={}){
+  if(!memberId) throw new Error("memberId is required");
+  return postForm({ op: "gymclockin", MemberID: memberId, ...extra });
+}
+export async function gymClockOut(memberId){
+  if(!memberId) throw new Error("memberId is required");
+  return postForm({ op: "gymclockout", MemberID: memberId });
+}
+export async function upsertGymEntry({ memberId, coach, focus, timeOut }){
+  const payload = { op: "upsertgymentry", MemberID: memberId };
+  if (timeOut) payload.TimeOut = timeOut;
+  if (coach) payload.Coach = coach;
+  if (focus) payload.Focus = focus;
+  return postForm(payload);
+}
 
 // Progress Tracker
 export async function fetchProgressTracker() { return fetchSheet("ProgressTracker"); }

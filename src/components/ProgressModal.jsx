@@ -77,8 +77,9 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   const [comments, setComments] = useState("");
 
   // Photos (max 3)
-  const [photos, setPhotos] = useState([]); // array of URLs
+  const [photos, setPhotos] = useState([]); // array of URLs at indices 0..2
   const [camOpen, setCamOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1); // which box is being filled/replaced
 
   // Derived
   const bmi = useMemo(() => {
@@ -99,6 +100,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
     setArms(0); setForearms(0); setThighs(0); setCalves(0);
     setBp(""); setRhr(""); setComments("");
     setPhotos([]);
+    setActiveIdx(-1);
   }, [open]);
 
   const onCapture = async (dataUrl) => {
@@ -110,17 +112,32 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
       const url = typeof res === "string" ? res : (res?.url || "");
       setPhotos((prev) => {
         const next = Array.isArray(prev) ? [...prev] : [];
-        if (next.length >= 3) return next; // enforce max 3
-        next.push(url);
+        // ensure we always have 3 slots for deterministic indices
+        while (next.length < 3) next.push("");
+        const idx = activeIdx >= 0 && activeIdx < 3 ? activeIdx : next.findIndex((x) => !x);
+        if (idx === -1) return next; // already full
+        next[idx] = url;
         return next;
       });
     } finally {
       setCamOpen(false);
+      setActiveIdx(-1);
     }
   };
 
   const removePhoto = (idx) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+    setPhotos((prev) => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      if (idx < 0 || idx >= 3) return next;
+      if (next.length < 3) while (next.length < 3) next.push("");
+      next[idx] = ""; // clear but keep slot
+      return next;
+    });
+  };
+
+  const openCameraFor = (idx) => {
+    setActiveIdx(idx);
+    setCamOpen(true);
   };
 
   const save = async (e) => {
@@ -208,30 +225,54 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
           <div />
         </div>
 
-        {/* Photos: one button, max of 3 */}
+        {/* Photos: 3 clickable boxes; each opens camera; previews sized reliably */}
         <div style={{ marginTop: 12 }}>
           <div className="label" style={{ marginBottom: 6 }}>Photos (max 3)</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-            {[0,1,2].map((i) => (
-              <div key={i} style={{ position: "relative" }}>
-                {photos[i] ? (
-                  <>
-                    <img src={photos[i]} alt={`Photo ${i+1}`} style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }} />
-                    <button type="button" aria-label="Remove" onClick={()=>removePhoto(i)}
-                      style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,.55)", color: "#fff", borderRadius: 6, padding: "4px 6px", border: 0 }}>
+            {[0,1,2].map((i) => {
+              const url = photos[i] || "";
+              return (
+                <div key={i} style={{ position: "relative" }}>
+                  {/* Aspect ratio wrapper (3:4) works across Safari/Chrome */}
+                  <div
+                    onClick={() => openCameraFor(i)}
+                    style={{
+                      position: "relative",
+                      width: "100%",
+                      height: 0,
+                      paddingTop: "133.333%",
+                      borderRadius: 8,
+                      border: url ? "1px solid #e5e7eb" : "1px dashed #e5e7eb",
+                      cursor: "pointer",
+                      overflow: "hidden",
+                      background: url ? "#fff" : "#fafafa",
+                    }}
+                  >
+                    {url ? (
+                      <img
+                        src={url}
+                        alt={`Photo ${i+1}`}
+                        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>
+                        Click to add
+                      </div>
+                    )}
+                  </div>
+                  {url && (
+                    <button
+                      type="button"
+                      aria-label="Remove"
+                      onClick={() => removePhoto(i)}
+                      style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,.55)", color: "#fff", borderRadius: 6, padding: "4px 6px", border: 0 }}
+                    >
                       ✕
                     </button>
-                  </>
-                ) : (
-                  <div style={{ width: "100%", aspectRatio: "3 / 4", border: "1px dashed #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>Empty</div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-            <button type="button" className="button" onClick={()=>setCamOpen(true)} disabled={photos.length>=3}>
-              ➕ Add pictures
-            </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

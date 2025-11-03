@@ -102,6 +102,7 @@ export default function App() {
           <Route path="/attendance" element={<StaffAttendance />} />
           <Route path="/members" element={<Members />} />
           <Route path="/members/add" element={<AddMember />} />
+          <Route path="/members/:memberId/edit" element={<AddMember />} />
           {/* Keep one canonical route */}
           <Route path="/members/:memberId" element={<MemberDetail />} />
           <Route path="/members/:id/progress/:index" element={<ProgressDetail />} />

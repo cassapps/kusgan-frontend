@@ -205,7 +205,8 @@ export default function StaffAttendance() {
       resList.forEach((res, idx) => {
         const ymd = days[idx];
         const rws = res?.rows || res?.data || [];
-        rws.forEach((r) => all.push({ ...r, Date: r?.Date || ymd }));
+        // Always pin the row's Date to the PH fetch-day to avoid timezone drift
+        rws.forEach((r) => all.push({ ...r, Date: ymd }));
       });
       // newest date first, then STAFF order, then name, then TimeIn
       all.sort((a, b) => {
@@ -299,7 +300,9 @@ export default function StaffAttendance() {
   // Only consider “clocked in” for today (PH) to enable/disable buttons
   const isClockedInToday = (name) => {
     const today = phTodayYMD();
-    return grouped.some((g) => g.staff === name && g.date === today && g.clockedIn);
+    const sameName = (a = "", b = "") => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    // Only today’s open session should affect today’s UI state
+    return grouped.some((g) => g.date === today && g.clockedIn && sameName(g.staff, name));
   };
 
   const onSignIn = async () => {

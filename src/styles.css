@@ -2,6 +2,8 @@
   /* Brand */
   --kusgan-magenta:#d81b8a;
   --kusgan-magenta-100:#ffd6ec;
+  --kusgan-magenta-50:#fff0f6; /* much lighter pink for subtle headers */
+  --th-tint: rgba(216, 27, 138, 0.06); /* transparent pink tint for table headers */
 
   /* Light theme */
   --light-bg:#f6f7fb;
@@ -131,8 +133,15 @@ h3{ margin-top:16px; }
 
 /* ---------- Tables ---------- */
 table{ width:100%; border-collapse:collapse; border:1px solid var(--light-border); }
-th,td{ padding:10px; border-bottom:1px solid var(--light-border); text-align:left; }
-th{ color:var(--muted); font-weight:600; background:#fafbff; }
+th,td{ padding:10px; border-bottom:1px solid var(--light-border); }
+td{ text-align:center; vertical-align:middle; }
+th{
+  text-align:center;
+  vertical-align:middle;
+  color:var(--muted);
+  font-weight:700;
+  background: var(--th-tint); /* transparent tint */
+}
 tbody tr{ transition:background .12s ease; }
 tbody tr:hover{ background:#f5f7ff; }
 tbody tr.row-link { cursor: pointer; }
@@ -140,6 +149,17 @@ tbody tr.row-link:hover { background:#eef2ff; }
 
 /* Keep key tables aligned */
 table.aligned{ table-layout:fixed; margin-bottom:40px; }
+
+/* Payments table header styling */
+.payments-table thead th{ text-align:center; vertical-align:middle; }
+.payments-table thead th .th-sub{
+  display:block;
+  font-size:12px;
+  color:var(--muted);
+  font-weight:600;
+  line-height:1.1;
+  margin-top:2px;
+}
 
 /* ---------- Buttons ---------- */
 .button{
@@ -215,22 +235,39 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
 .switch.on .slider{ background:#2f9e44; }
 .switch.on .slider:before{ transform:translateX(24px); }
 
+/* Member card layout */
+.member-card{
+  display:flex; gap:24px; align-items:stretch;
+  background:#fff; border:1px solid var(--light-border, #e5e7eb);
+  border-radius:16px; padding:16px; box-shadow:0 10px 24px rgba(0,0,0,0.05);
+  /* Make the card narrower (about 75% of the content width) and center it */
+  width: 75%;
+  margin: 0; /* left-aligned */
+}
+.member-photo{ display:flex; align-items:flex-start; }
+.member-photo .photo-box{ width: 320px; max-width: 360px; aspect-ratio: 3 / 4; overflow:hidden; border-radius:16px; border:1px solid var(--light-border, #e5e7eb); background:#fafbff; }
+.member-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+.member-info{
+  /* Keep the right side from spanning the entire screen */
+  flex: 0 1 900px; /* prefer up to ~900px, shrink if needed */
+  max-width: 900px;
+  min-width: 680px;
+  display:flex; flex-direction:column; min-width:0;
+}
+
 /* ---------- Member Detail (6-col grid) ---------- */
 .member-grid{
-  display:grid; gap:16px;
-  grid-template-columns:repeat(6,1fr);
-  grid-auto-rows:minmax(48px,auto);
-  margin-bottom:40px;
+  display:grid; gap:12px 20px;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  grid-auto-rows:minmax(36px,auto); /* slightly taller rows to fill height */
+  margin-bottom:12px;
+  flex:1 1 auto; /* expand to fill so actions can sit at bottom */
 }
 
 /* Photo 2 cols x 3 rows */
-.member-grid .photo{
-  grid-column:1 / span 2; grid-row:1 / span 3;
-  display:flex; align-items:center; justify-content:center;
-  border:1px solid var(--light-border); border-radius:14px; background:#fafbff;
-  overflow:hidden; max-width:300px; max-height:200px;
-}
-.member-grid .photo img{ width:100%; height:100%; object-fit:cover; }
+/* cells auto-flow in the right column area */
+.member-grid .cell{ grid-column:auto !important; grid-row:auto !important; }
+/* removed external photo link */
 
 /* Right of photo rows */
 .member-grid .lastname   { grid-column:3 / span 2; grid-row:1; }
@@ -244,19 +281,58 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
 .member-grid .municipality{ grid-column:5 / span 1; grid-row:3; }
 
 /* Below photo */
-.member-grid .nickname   { grid-column:1 / span 2; grid-row:4; }
-.member-grid .mobile     { grid-column:3 / span 2; grid-row:4; }
-.member-grid .email      { grid-column:4 / span 2; grid-row:4; }
-.member-grid .memberSince{ grid-column:1 / span 2; grid-row:5; }
-.member-grid .gym        { grid-column:3 / span 2; grid-row:5; }
-.member-grid .coach      { grid-column:4 / span 2; grid-row:5; }
+/* Unset legacy explicit placements below so they auto-flow */
+.member-grid .lastname,
+.member-grid .firstname,
+.member-grid .middlename,
+.member-grid .gender,
+.member-grid .birthday,
+.member-grid .age,
+.member-grid .street,
+.member-grid .brgy,
+.member-grid .municipality,
+.member-grid .nickname,
+.member-grid .mobile,
+.member-grid .email,
+.member-grid .memberSince,
+.member-grid .gym,
+.member-grid .coach{ grid-column:auto; grid-row:auto; }
 
 /* Labels + values */
 .member-grid .cell .label{
-  font-style:italic; color:var(--muted); margin-bottom:2px; font-size:12px;
+  font-style:normal; text-transform:uppercase; letter-spacing:0.02em;
+  color:var(--muted); margin-bottom:2px; font-size:10px;
 }
 .member-grid .cell .value{
-  font-weight:700; font-size:18px;
+  font-weight:700; font-size:16px; line-height:1.2;
+}
+
+/* Member actions row under the grid */
+.member-actions{
+  /* Keep all four buttons on one line (desktop) */
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px; /* uniform spacing between buttons */
+  margin: 8px 0 24px;
+  margin-top:auto; /* push actions to align with bottom of photo */
+}
+/* Buttons fill their grid cell; height matches back/logout (44px via .primary-btn/.back-btn) */
+.member-actions .primary-btn,
+.member-actions .button,
+.member-actions .back-btn{
+  width: 100%;
+  height: 44px;            /* ensure consistent height */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap; /* keep text on one line */
+}
+/* Responsive fallbacks for smaller screens */
+@media (max-width: 900px){
+  .member-actions{ grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px){
+  .member-actions{ grid-template-columns: 1fr; }
 }
 /* === FINAL: Back & Track Progress button styling === */
 .back-btn,
@@ -395,6 +471,25 @@ label.checkbox-label {
   gap: 6px;
 }
 
+/* Inline alignment: place Student checkbox on the same row level as the Birthday input */
+.bday-student-row{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto; /* row1: label, row2: input */
+  column-gap: 12px;
+  align-items: center; /* centers within each grid cell */
+}
+.bday-student-row .birthday-field{
+  grid-column: 1;
+  grid-row: 1 / span 2; /* span label + input */
+}
+.bday-student-row .student-inline{
+  grid-column: 2;
+  grid-row: 2;           /* align with the input row */
+  align-self: center;     /* vertically center with the input's height */
+  white-space: nowrap;
+}
+
 .camera-btn {
   font-size: 1.2rem;
   height: 52px;
@@ -444,13 +539,15 @@ label.checkbox-label {
 }
 .photo-preview {
   width: 220px;
+  aspect-ratio: 3 / 4;   /* passport portrait */
+  height: auto;
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid var(--light-border, #e5e7eb);
 }
 .photo-placeholder {
   width: 220px;
-  height: 220px;
+  aspect-ratio: 3 / 4;   /* passport portrait */
   border-radius: 12px;
   border: 1px dashed var(--light-border, #e5e7eb);
   display: flex;

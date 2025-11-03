@@ -47,7 +47,7 @@ export default function Nav({ onLogout = () => {} }) {
         <NavLink to="/" end>🏠 Dashboard</NavLink>
         <NavLink to="/attendance">🕒 Staff Attendance</NavLink>
         <NavLink to="/members">💪 All Members</NavLink>
-        <NavLink to="/payments">💰 Payments</NavLink>
+  {/* Payments page link removed per request (use modal from Member Detail) */}
         <NavLink to="/checkin">🎟️ Member Check-In</NavLink>
       </nav>
       <div className="sidebar-footer">

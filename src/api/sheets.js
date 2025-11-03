@@ -43,7 +43,8 @@ export async function fetchSheet(sheetName) {
   return getJSON(withQuery(`sheet=${encodeURIComponent(sheetName)}`));
 }
 export async function insertRow(sheet, row) {
-  return postJSON(withQuery(""), { op: "insert", sheet, row });
+  // Use form-encoded to avoid preflight; send row as JSON string
+  return postForm({ op: "insert", sheet, row: JSON.stringify(row) });
 }
 
 // Members
@@ -53,10 +54,43 @@ export async function fetchMembers() {
 export async function fetchMembersFresh() { return fetchMembers(); }
 export async function addMember(row) { return insertRow("Members", row); }
 export async function saveMember(row) { return addMember(row); }
-export async function uploadPhoto({ memberId, filename, mime, data }) {
-  return postJSON(withQuery(""), { op: "uploadphoto", memberId, filename, mime, data });
+export async function updateMember(row) {
+  // expects { MemberID, ...fields }
+  return postForm({ op: "updatemember", row: JSON.stringify(row) });
 }
-export async function uploadMemberPhoto(args) { return uploadPhoto(args); }
+export async function uploadPhoto({ memberId, filename, mime, data }) {
+  // Also send as form-encoded to avoid preflight; backend should parse base64
+  return postForm({ op: "uploadphoto", memberId, filename, mime, data });
+}
+
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error("Failed to read file"));
+    fr.onload = () => {
+      const result = String(fr.result || "");
+      // result is a data URL like: data:image/jpeg;base64,XXXXX
+      const idx = result.indexOf(",");
+      const base64 = idx >= 0 ? result.slice(idx + 1) : result;
+      resolve(base64);
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+// Accept either (file, baseId) or an object { memberId, filename, mime, data }
+export async function uploadMemberPhoto(fileOrArgs, baseId) {
+  if (fileOrArgs instanceof Blob) {
+    const file = fileOrArgs;
+    const filename = (file && file.name) || `photo-${Date.now()}.jpg`;
+    const mime = (file && file.type) || "image/jpeg";
+    const data = await fileToBase64(file);
+    const memberId = baseId || "";
+    return uploadPhoto({ memberId, filename, mime, data });
+  }
+  // Fall back to old object signature
+  return uploadPhoto(fileOrArgs || {});
+}
 export async function fetchMemberById(memberId) {
   const res = await fetchSheet("Members");
   const rows = res?.rows || res?.data || [];
@@ -112,12 +146,14 @@ export async function fetchPricing() { return getJSON(withQuery("action=pricing"
 
 // Payments
 export async function fetchPayments() { return getJSON(withQuery("action=payments")); }
-export async function addPayment(payload) { return postJSON(withQuery(""), { op: "addpayment", ...payload }); }
+// Use form-encoded to avoid CORS preflight which can cause "failed to fetch"
+export async function addPayment(payload) { return postForm({ op: "addpayment", ...payload }); }
 
 // Default (optional)
 const api = {
   fetchSheet, insertRow,
   fetchMembers, fetchMembersFresh, addMember, saveMember, uploadPhoto, uploadMemberPhoto, fetchMemberById, fetchMemberBundle,
+  updateMember,
   fetchAttendance, clockIn, clockOut, upsertAttendance,
   fetchGymEntries, addGymEntry,
   fetchProgressTracker, addProgressRow,
@@ -154,23 +190,4 @@ export function derivePrimaryFromAttendance(rows = []) {
 }
 
 // Try API; fallback to computing from attendance
-export async function getPrimaryAttendant() {
-  try {
-    const api = await fetchPrimaryAttendant();
-    const fromApi = api?.name || api?.primary || api?.Staff || api?.staff || null;
-    if (fromApi) return fromApi;
-  } catch (_) {}
-  const ymd = new Date().toISOString().slice(0, 10);
-  const res = await fetchAttendance(ymd);
-  const rows = res?.rows || res?.data || [];
-  return derivePrimaryFromAttendance(rows);
-}
-
-// Keep this export too for pages that import it
-export async function fetchPrimaryAttendant() {
-  try {
-    return await getJSON(withQuery("action=primary-attendant"));
-  } catch (e) {
-    return await getJSON(withQuery("action=primaryAttendant"));
-  }
-}
+// primary attendant API removed; derivePrimaryFromAttendance remains for any local use

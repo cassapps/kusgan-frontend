@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from "react";
 export default function CameraModal({ open, onClose, onCapture }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const startingRef = useRef(false);
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState("");
   const [error, setError] = useState("");
+  const [isStarting, setIsStarting] = useState(false);
 
   // Stop current stream
   const stopStream = () => {
@@ -17,23 +19,57 @@ export default function CameraModal({ open, onClose, onCapture }) {
 
   // Start a stream for a specific device
   const startStream = async (id = "") => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setIsStarting(true);
     setError("");
     stopStream();
-    try {
-      const constraints = {
-        video: id
-          ? { deviceId: { exact: id }, width: { ideal: 1280 }, height: { ideal: 720 } }
-          : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  try {
+      const preferred = id
+        ? { video: { deviceId: { exact: id }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }
+        : { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(preferred);
+      } catch (err1) {
+        // Fallbacks for common failures
+        try {
+          const fallback = id
+            ? { video: { deviceId: { ideal: id } }, audio: false }
+            : { video: true, audio: false };
+          stream = await navigator.mediaDevices.getUserMedia(fallback);
+        } catch (err2) {
+          const e = err2 || err1;
+          const name = e && e.name ? String(e.name) : "";
+          if (name === "NotAllowedError") {
+            setError("Camera permission denied. Please allow camera access in the browser site settings and macOS Privacy > Camera.");
+          } else if (name === "NotReadableError") {
+            setError("Camera is busy or not readable. Close other apps using the camera (e.g., Zoom/Meet/FaceTime) and try again.");
+          } else if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+            setError("Selected camera doesn't meet constraints. Try choosing a different camera.");
+          } else if (name === "NotFoundError") {
+            setError("No camera found. Plug in a camera or check system permissions.");
+          } else {
+            setError("Cannot access camera. Check site permissions and OS privacy settings.");
+          }
+          return; // stop on failure
+        }
+      }
+
+      // Success path
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        try { await videoRef.current.play(); } catch { /* ignore play errors (autoplay), stream is set */ }
       }
+      // After success, refresh device labels (permissions granted now)
+      try { await refreshDevices(); } catch { /* ignore */ }
     } catch (e) {
       setError("Cannot access camera. Check site permissions and OS privacy settings.");
+    } finally {
+      startingRef.current = false;
+      setIsStarting(false);
     }
   };
 
@@ -56,8 +92,9 @@ export default function CameraModal({ open, onClose, onCapture }) {
       return;
     }
     (async () => {
-      await startStream();      // start with a default stream
-      await refreshDevices();   // then list devices
+      setError("");
+      // Proactively request permission and begin streaming; this also helps reveal device labels
+      await startStream(deviceId || "");
     })();
 
     // listen for device changes (e.g., plug/unplug USB camera)
@@ -73,6 +110,10 @@ export default function CameraModal({ open, onClose, onCapture }) {
   // Switch camera when the selector changes
   useEffect(() => {
     if (!open || !deviceId) return;
+    try {
+      const currentId = streamRef.current?.getVideoTracks?.()[0]?.getSettings?.().deviceId || "";
+      if (currentId && currentId === deviceId) return; // already on this device
+    } catch { /* ignore */ }
     startStream(deviceId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId]);
@@ -119,14 +160,21 @@ export default function CameraModal({ open, onClose, onCapture }) {
           </select>
         </div>
 
+        {!error && !streamRef.current && (
+          <div style={{ color: "#666", marginBottom: 8 }}>
+            Initializing camera… please allow the browser prompt.
+          </div>
+        )}
         {error ? (
-          <div style={{ color: "#d33", marginBottom: 12 }}>{error}</div>
+          <div style={{ color: "#d33", marginBottom: 12 }}>
+            {error}
+          </div>
         ) : (
           <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 10, background: "#000" }} />
         )}
 
         <div style={{ display: "flex", gap: 10, marginTop: 12, justifyContent: "flex-end" }}>
-          <button className="button btn-lg" onClick={takeSnapshot} disabled={!!error}>Capture</button>
+          <button className="button btn-lg" onClick={takeSnapshot} disabled={!!error || !streamRef.current}>Capture</button>
         </div>
       </div>
     </div>

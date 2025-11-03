@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchMembers, fetchPayments, fetchGymEntries } from "../api/sheets";
+import AddMemberModal from "../components/AddMemberModal";
 
 // helpers
 const toKey = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -20,6 +21,12 @@ const normRow = (row) => {
   const out = {};
   Object.entries(row || {}).forEach(([k,v]) => { out[toKey(k)] = v; });
   return out;
+};
+
+// Basic title-case for names (First Letter Caps), keeps separators intact
+const toTitleCase = (s) => {
+  const str = String(s || "");
+  return str.toLowerCase().replace(/(?:^|[\s\-])([a-z])/g, (m, g1) => m.replace(g1, g1.toUpperCase()));
 };
 
 // Pretty date like "Nov-2, 2025"
@@ -95,24 +102,26 @@ export default function Members() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
+  const [openAdd, setOpenAdd] = useState(false);
+
+  async function loadAll() {
+    const [mRes, pRes, gRes] = await Promise.all([
+      fetchMembers(), fetchPayments(), fetchGymEntries()
+    ]);
+    const members = (mRes?.rows ?? mRes?.data ?? []).map(normRow);
+    const payments = pRes?.rows ?? pRes?.data ?? [];
+    const gymEntries = gRes?.rows ?? gRes?.data ?? [];
+    setRows(members);
+    setPayIdx(buildPaymentIndex(payments));
+    setVisitIdx(buildLastVisitIndex(gymEntries));
+  }
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [mRes, pRes, gRes] = await Promise.all([
-          fetchMembers(),
-          fetchPayments(),
-          fetchGymEntries()
-        ]);
-        const members = (mRes?.rows ?? mRes?.data ?? []).map(normRow);
-        const payments = pRes?.rows ?? pRes?.data ?? [];
-        const gymEntries = gRes?.rows ?? gRes?.data ?? [];
-        if (alive) {
-          setRows(members);
-          setPayIdx(buildPaymentIndex(payments));
-          setVisitIdx(buildLastVisitIndex(gymEntries));
-        }
+        await loadAll();
+        if (!alive) return;
       } catch (e) {
         console.error(e);
         if (alive) setError(e.message || "Failed to fetch");
@@ -167,9 +176,7 @@ export default function Members() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <button className="button" onClick={() => navigate("/members/add")}>
-          + Add Member
-        </button>
+        <button className="button" onClick={() => setOpenAdd(true)}>+ Add Member</button>
       </div>
 
       {loading && <div>Loading members…</div>}
@@ -216,9 +223,9 @@ export default function Members() {
                 // FULL NAME (ALL CAPS) supports FirstName/LastName variants
                 const first = String(firstOf(r, ["first_name","firstname","first","given_name"]) ?? "");
                 const last  = String(firstOf(r, ["last_name","lastname","last","surname"]) ?? "");
-                const fullName = `${first} ${last}`.trim().toUpperCase();
+                const fullName = [first, last].filter(Boolean).map(toTitleCase).join(" ");
 
-                const nick = r.nick_name ?? r.nickname ?? "";
+                const nick = String(r.nick_name ?? r.nickname ?? "").toUpperCase();
                 const memberSince = asDate(firstOf(r, ["member_since","membersince","join_date","joined","start_date"]));
                 const mState = pay?.membershipState ?? null;
                 const coachActive = pay?.coachActive ?? false;
@@ -257,6 +264,14 @@ export default function Members() {
           </tbody>
         </table>
       )}
+
+      <AddMemberModal
+        open={openAdd}
+        onClose={() => setOpenAdd(false)}
+        onSaved={async () => {
+          try { await loadAll(); } catch(_) {}
+        }}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import PaymentModal from "../components/PaymentModal";
 import EditMemberModal from "../components/EditMemberModal";
 import QrCodeModal from "../components/QrCodeModal";
+import ProgressModal from "../components/ProgressModal";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   fetchMembers,
@@ -274,6 +275,7 @@ export default function MemberDetail() {
   const [openPayment, setOpenPayment] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
   const [openQr, setOpenQr] = useState(false);
+  const [openProgress, setOpenProgress] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
 
   // Reset image-failed flag whenever the computed photo URL changes
@@ -454,7 +456,7 @@ export default function MemberDetail() {
             </button>
             <button
               className="primary-btn"
-              onClick={() => navigate(`/members/${encodeURIComponent(id)}/progress/0`)}
+              onClick={() => setOpenProgress(true)}
               title="Track or view progress"
             >
               📈 Progress
@@ -491,12 +493,13 @@ export default function MemberDetail() {
         nickname={nick || firstName || ""}
       />
 
-      {/* QR Code modal */}
-      <QrCodeModal
-        open={openQr}
-        onClose={() => setOpenQr(false)}
+      {/* Progress modal */}
+      <ProgressModal
+        open={openProgress}
+        onClose={() => setOpenProgress(false)}
         memberId={id}
-        nickname={nick || `${firstName || ""} ${lastName || ""}`.trim()}
+        memberSinceYMD={memberSince ? `${memberSince.getFullYear()}-${String(memberSince.getMonth()+1).padStart(2,"0")}-${String(memberSince.getDate()).padStart(2,"0")}` : ""}
+        onSaved={() => { setOpenProgress(false); refreshBundle(); }}
       />
 
       <h3>Gym Visits</h3>

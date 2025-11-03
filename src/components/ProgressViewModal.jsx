@@ -26,7 +26,7 @@ export default function ProgressViewModal({ open, onClose, row }){
   if (!open) return null;
   const r = row || {};
   const memberId = pick(r, ["MemberID","memberid","member_id","id"]);
-  const date = pick(r, ["Date","date","recorded","log_date","timestamp"]);
+  const dateRaw = pick(r, ["Date","date","recorded","log_date","timestamp"]);
   const no = pick(r, ["No","no","entry_no","seq","number"]);
   const weight = pick(r, ["Weight (lbs)","Weight(lbs)","Weight","Weight_lbs","weight","weight_lbs","weight_(lbs)"]);
   const bmi = pick(r, ["BMI","bmi"]);
@@ -64,7 +64,7 @@ export default function ProgressViewModal({ open, onClose, row }){
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>Date</div>
-            <div style={{ fontWeight: 700 }}>{date || "-"}</div>
+            <div style={{ fontWeight: 700 }}>{formatPH(dateRaw) || "-"}</div>
           </div>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
             <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>No.</div>
@@ -113,4 +113,29 @@ export default function ProgressViewModal({ open, onClose, row }){
       </div>
     </div>
   );
+}
+
+// Format a Date, ISO string, or yyyy-mm-dd as "Mon-D, YYYY" in Asia/Manila
+const MANILA_TZ = "Asia/Manila";
+function formatPH(dOrYmd){
+  if (!dOrYmd) return "";
+  let date;
+  if (typeof dOrYmd === "string"){
+    // Accept ISO or yyyy-mm-dd
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dOrYmd)){
+      const [y,m,d] = dOrYmd.split("-").map(Number);
+      date = new Date(Date.UTC(y, m-1, d));
+    } else {
+      const parsed = new Date(dOrYmd);
+      if (!isNaN(parsed)) date = parsed;
+    }
+  } else if (dOrYmd instanceof Date) {
+    date = dOrYmd;
+  }
+  if (!date || isNaN(date)) return String(dOrYmd);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: MANILA_TZ, month: "short", day: "numeric", year: "numeric" }).formatToParts(date);
+  const m = parts.find(p=>p.type==="month")?.value || "";
+  const day = parts.find(p=>p.type==="day")?.value || "";
+  const y = parts.find(p=>p.type==="year")?.value || "";
+  return `${m}-${day}, ${y}`;
 }

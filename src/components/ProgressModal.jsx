@@ -76,11 +76,9 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   const [rhr, setRhr] = useState("");
   const [comments, setComments] = useState("");
 
-  // Photos
-  const [photo1, setPhoto1] = useState("");
-  const [photo2, setPhoto2] = useState("");
-  const [photo3, setPhoto3] = useState("");
-  const [camFor, setCamFor] = useState(null); // 1 | 2 | 3
+  // Photos (max 3)
+  const [photos, setPhotos] = useState([]); // array of URLs
+  const [camOpen, setCamOpen] = useState(false);
 
   // Derived
   const bmi = useMemo(() => {
@@ -100,7 +98,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
     setChest(0); setWaist(0); setHips(0); setShoulders(0);
     setArms(0); setForearms(0); setThighs(0); setCalves(0);
     setBp(""); setRhr(""); setComments("");
-    setPhoto1(""); setPhoto2(""); setPhoto3("");
+    setPhotos([]);
   }, [open]);
 
   const onCapture = async (dataUrl) => {
@@ -110,12 +108,19 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
       const baseId = String(memberId || "").toLowerCase();
       const res = await uploadMemberPhoto(file, baseId);
       const url = typeof res === "string" ? res : (res?.url || "");
-      if (camFor === 1) setPhoto1(url);
-      if (camFor === 2) setPhoto2(url);
-      if (camFor === 3) setPhoto3(url);
+      setPhotos((prev) => {
+        const next = Array.isArray(prev) ? [...prev] : [];
+        if (next.length >= 3) return next; // enforce max 3
+        next.push(url);
+        return next;
+      });
     } finally {
-      setCamFor(null);
+      setCamOpen(false);
     }
+  };
+
+  const removePhoto = (idx) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const save = async (e) => {
@@ -130,9 +135,9 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
       MuscleMass: muscle ? String(muscle) : "",
       BodyFat: bodyFat ? String(bodyFat) : "",
       VisceralFat: visceralFat ? String(visceralFat) : "",
-      Photo1URL: photo1,
-      Photo2URL: photo2,
-      Photo3URL: photo3,
+  Photo1URL: photos[0] || "",
+  Photo2URL: photos[1] || "",
+  Photo3URL: photos[2] || "",
       "Height (inches)": inches ? String(inches) : "",
       Chest: chest ? String(chest) : "",
       Waist: waist ? String(waist) : "",
@@ -203,40 +208,30 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
           <div />
         </div>
 
-        {/* Photos row */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 12 }}>
-          <div>
-            <div className="label" style={{ marginBottom: 6 }}>Photo 1</div>
-            {photo1 ? (
-              <img src={photo1} alt="Photo 1" style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }} />
-            ) : (
-              <div style={{ width: "100%", aspectRatio: "3 / 4", border: "1px dashed #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>No photo</div>
-            )}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button type="button" className="button" onClick={()=>setCamFor(1)} style={{ flex: 1 }}>📷 Camera</button>
-            </div>
+        {/* Photos: one button, max of 3 */}
+        <div style={{ marginTop: 12 }}>
+          <div className="label" style={{ marginBottom: 6 }}>Photos (max 3)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            {[0,1,2].map((i) => (
+              <div key={i} style={{ position: "relative" }}>
+                {photos[i] ? (
+                  <>
+                    <img src={photos[i]} alt={`Photo ${i+1}`} style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }} />
+                    <button type="button" aria-label="Remove" onClick={()=>removePhoto(i)}
+                      style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,.55)", color: "#fff", borderRadius: 6, padding: "4px 6px", border: 0 }}>
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ width: "100%", aspectRatio: "3 / 4", border: "1px dashed #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>Empty</div>
+                )}
+              </div>
+            ))}
           </div>
-          <div>
-            <div className="label" style={{ marginBottom: 6 }}>Photo 2</div>
-            {photo2 ? (
-              <img src={photo2} alt="Photo 2" style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }} />
-            ) : (
-              <div style={{ width: "100%", aspectRatio: "3 / 4", border: "1px dashed #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>No photo</div>
-            )}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button type="button" className="button" onClick={()=>setCamFor(2)} style={{ flex: 1 }}>📷 Camera</button>
-            </div>
-          </div>
-          <div>
-            <div className="label" style={{ marginBottom: 6 }}>Photo 3</div>
-            {photo3 ? (
-              <img src={photo3} alt="Photo 3" style={{ width: "100%", aspectRatio: "3 / 4", objectFit: "cover", borderRadius: 8, border: "1px solid #e5e7eb" }} />
-            ) : (
-              <div style={{ width: "100%", aspectRatio: "3 / 4", border: "1px dashed #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#999" }}>No photo</div>
-            )}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button type="button" className="button" onClick={()=>setCamFor(3)} style={{ flex: 1 }}>📷 Camera</button>
-            </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <button type="button" className="button" onClick={()=>setCamOpen(true)} disabled={photos.length>=3}>
+              ➕ Add pictures
+            </button>
           </div>
         </div>
 
@@ -251,7 +246,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
           <button type="submit" className="primary-btn">💾 Save Progress</button>
         </div>
 
-        <CameraModal open={!!camFor} onClose={()=>setCamFor(null)} onCapture={onCapture} />
+        <CameraModal open={camOpen} onClose={()=>setCamOpen(false)} onCapture={onCapture} />
       </form>
     </div>
   );

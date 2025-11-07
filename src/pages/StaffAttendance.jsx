@@ -75,6 +75,7 @@ export default function StaffAttendance() {
   const [busy, setBusy] = useState(false);
   const [loadedDays, setLoadedDays] = useState(20);
   const [staffOptions, setStaffOptions] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(10);
   const [debugVisible, setDebugVisible] = useState(false);
 
   const load = async () => {
@@ -110,7 +111,9 @@ export default function StaffAttendance() {
 
   const grouped = useMemo(() => {
     const map = new Map();
-    for (const r of rows) {
+    // only consider the most recent visibleCount rows for the main table
+    const slice = Array.isArray(rows) ? rows.slice(0, visibleCount) : [];
+    for (const r of slice) {
       // normalize row keys to make header name variations tolerant (lowercased, no spaces/symbols)
       const norm = {};
       Object.keys(r || {}).forEach((k) => {
@@ -146,6 +149,13 @@ export default function StaffAttendance() {
     for (const v of arr) v.sessions.sort((a,b)=> (a.in||'').localeCompare(b.in||''));
     return arr;
   }, [rows]);
+  // select options: union of grouped staff and staffOptions (fallback)
+  const selectStaffOptions = useMemo(() => {
+    const s = new Set();
+    for (const g of grouped) if (g && g.staff) s.add(g.staff);
+    for (const a of staffOptions || []) if (a) s.add(a);
+    return Array.from(s).sort((a,b)=>a.localeCompare(b));
+  }, [grouped, staffOptions]);
 
   const todayClockedSet = useMemo(() => {
     const s = new Set();
@@ -254,7 +264,7 @@ export default function StaffAttendance() {
               disabled={busy}
             >
               <option value=""></option>
-              {[...new Set(grouped.map(g=>g.staff))].map(s => (
+              {selectStaffOptions.map(s => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -385,14 +395,14 @@ export default function StaffAttendance() {
           <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
             <button
               className="secondary-btn"
-              onClick={() => setLoadedDays((d) => Math.min(d + 10, 200))}
-              disabled={busy}
-              title="Load 10 more days of attendance"
+              onClick={() => setVisibleCount(c => Math.min((rows?.length||0), c + 10))}
+              disabled={busy || (visibleCount >= (rows?.length || 0))}
+              title="Load 10 more entries"
             >
-              ⤵ Load more (older days)
+              ⤵ Load more (older entries)
             </button>
             <div style={{ color: 'var(--muted)', fontSize: 13 }}>
-              Showing last {loadedDays} days (you can load more if needed)
+              Showing {Math.min(visibleCount, rows?.length || 0)} of {rows?.length || 0} entries
             </div>
           </div>
         </div>

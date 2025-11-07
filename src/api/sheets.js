@@ -45,7 +45,16 @@ const _mock = (function createMock() {
     { MemberID: '1002', NickName: 'SAM', FirstName: 'Samuel', LastName: 'Dela Cruz', member_since: now.toISOString().slice(0,10) }
   ];
   const payments = [];
-  const gymEntries = [];
+  const gymEntries = [
+    { Staff: 'Coach Elmer', Date: now.toISOString().slice(0,10), TimeIn: '08:30', TimeOut: '' },
+    { Staff: 'Coach Jojo', Date: now.toISOString().slice(0,10), TimeIn: '08:45', TimeOut: '' },
+    { Staff: 'Patpat', Date: now.toISOString().slice(0,10), TimeIn: '09:00', TimeOut: '' },
+    { Staff: 'Sheen', Date: now.toISOString().slice(0,10), TimeIn: '09:15', TimeOut: '' },
+    { Staff: 'Jeanette', Date: now.toISOString().slice(0,10), TimeIn: '09:30', TimeOut: '' },
+    { Staff: 'Xyza', Date: now.toISOString().slice(0,10), TimeIn: '09:45', TimeOut: '' },
+    { Staff: 'Bezza', Date: now.toISOString().slice(0,10), TimeIn: '10:00', TimeOut: '' },
+    { Staff: 'Johanna', Date: now.toISOString().slice(0,10), TimeIn: '10:15', TimeOut: '' },
+  ];
   const progress = [];
   const pricing = [];
 
@@ -417,7 +426,23 @@ export async function fetchAttendance(dateYMD) {
   const q = dateYMD ? `action=attendance&date=${encodeURIComponent(dateYMD)}` : "action=attendance";
   // Attendance is likely to change often; keep cache small
   if (MOCK) return _mock.fetchAttendance(dateYMD);
-  return cachedGetJSON(withQuery(q), 5_000);
+  // Try the fast attendance endpoint first; if it returns empty, try the sheet-based endpoints as fallback
+  const primary = await cachedGetJSON(withQuery(q), 5_000).catch(() => ({ rows: [] }));
+  const rows = primary?.rows || primary?.data || [];
+  if (rows && rows.length) return primary;
+  // fallback: try the configured attendance sheet name (ATT_SHEET)
+  try {
+    const bySheet = await cachedGetJSON(withQuery(`sheet=${encodeURIComponent(ATT_SHEET)}`), 5_000).catch(() => ({ rows: [] }));
+    const srows = bySheet?.rows || bySheet?.data || [];
+    if (srows && srows.length) return bySheet;
+  } catch (e) {}
+  // secondary fallback: try GymEntries sheet name
+  try {
+    const gym = await cachedGetJSON(withQuery(`sheet=GymEntries`), 5_000).catch(() => ({ rows: [] }));
+    const grow = gym?.rows || gym?.data || [];
+    if (grow && grow.length) return gym;
+  } catch (e) {}
+  return primary;
 }
 export async function clockIn(arg) {
   const staff = typeof arg === "string" ? arg : (arg?.staff || arg?.Staff || "");

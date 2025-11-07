@@ -67,6 +67,16 @@ const monDashYear = (ymd) => {
 };
 
 export default function StaffAttendance() {
+  const DEFAULT_STAFF = [
+    'Coach Elmer',
+    'Coach Jojo',
+    'Patpat',
+    'Sheen',
+    'Jeanette',
+    'Xyza',
+    'Bezza',
+    'Johanna',
+  ];
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLoadingToast, setShowLoadingToast] = useState(false);
@@ -111,8 +121,8 @@ export default function StaffAttendance() {
 
   const grouped = useMemo(() => {
     const map = new Map();
-    // only consider the most recent visibleCount rows for the main table
-    const slice = Array.isArray(rows) ? rows.slice(0, visibleCount) : [];
+  // only consider the most recent visibleCount rows for the main table
+  const slice = Array.isArray(rows) && rows.length ? rows.slice(Math.max(0, rows.length - visibleCount)) : [];
     for (const r of slice) {
       // normalize row keys to make header name variations tolerant (lowercased, no spaces/symbols)
       const norm = {};
@@ -154,6 +164,7 @@ export default function StaffAttendance() {
     const s = new Set();
     for (const g of grouped) if (g && g.staff) s.add(g.staff);
     for (const a of staffOptions || []) if (a) s.add(a);
+    for (const d of DEFAULT_STAFF) if (d) s.add(d);
     return Array.from(s).sort((a,b)=>a.localeCompare(b));
   }, [grouped, staffOptions]);
 

@@ -96,11 +96,19 @@ export default function StaffAttendance() {
   const grouped = useMemo(() => {
     const map = new Map();
     for (const r of rows) {
-      const staff = String(r.Staff || r.staff || '').trim();
+      // normalize row keys to make header name variations tolerant (lowercased, no spaces/symbols)
+      const norm = {};
+      Object.keys(r || {}).forEach((k) => {
+        const nk = String(k || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9_]/g, '');
+        norm[nk] = r[k];
+      });
+      const staff = String(
+        norm.staff || norm.name || norm.fullname || norm['fullname'] || norm.employee || norm.employeeid || ''
+      ).trim();
       if (!staff) continue;
-      const dateStr = String(r.Date || (r.date || '')).slice(0,10) || phTodayYMD();
-      const tinRaw = String(r.TimeIn || r.timein || r.time_in || '').trim();
-      const toutRaw = String(r.TimeOut || r.timeout || r.time_out || '').trim();
+      const dateStr = String(r.Date || r.date || r.DateTime || r.datetime || r.LogDate || r.log_date || '').slice(0,10) || phTodayYMD();
+      const tinRaw = String(r.TimeIn || r.timein || r.time_in || norm.timein || norm.timeinlocal || '').trim();
+      const toutRaw = String(r.TimeOut || r.timeout || r.time_out || norm.timeout || norm.timeoutlocal || '').trim();
       const key = `${dateStr}|${staff}`;
       let obj = map.get(key);
       if (!obj) {

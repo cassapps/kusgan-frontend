@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FixedSizeList as List } from 'react-window';
 import "../styles.css";
-import { fetchAttendance, attendanceQuickAppend } from "../api/sheets";
+import { fetchAttendance, attendanceQuickAppend, fetchMembers } from "../api/sheets";
 
 const MANILA_TZ = "Asia/Manila";
 
@@ -74,6 +74,8 @@ export default function StaffAttendance() {
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadedDays, setLoadedDays] = useState(20);
+  const [staffOptions, setStaffOptions] = useState([]);
+  const [debugVisible, setDebugVisible] = useState(false);
 
   const load = async () => {
     setShowLoadingToast(true);
@@ -82,6 +84,19 @@ export default function StaffAttendance() {
       const res = await fetchAttendance();
       const data = res?.rows ?? res?.data ?? [];
       setRows(Array.isArray(data) ? data : []);
+      // also try to fetch members so we can offer staff picks even if no attendance rows exist
+      try {
+        const mRes = await fetchMembers();
+        const mrows = mRes?.rows ?? mRes?.data ?? [];
+        const opts = [];
+        for (const m of (Array.isArray(mrows) ? mrows : [])) {
+          const nm = String(m?.NickName || m?.nickname || m?.nick_name || m?.first_name || m?.firstname || m?.Name || m?.name || m?.['Full Name'] || '').trim();
+          if (nm) opts.push(nm);
+        }
+        setStaffOptions(Array.from(new Set(opts)).sort((a,b)=>a.localeCompare(b)));
+      } catch(err) {
+        // ignore member fetch errors
+      }
     } catch (e) {
       console.error(e);
       setError(e?.message || 'Failed to load attendance');
@@ -145,6 +160,17 @@ export default function StaffAttendance() {
     if (!name) return false;
     return todayClockedSet.has(String(name).trim().toLowerCase());
   };
+
+  const normalizedKeys = useMemo(() => {
+    const s = new Set();
+    for (const r of rows) {
+      for (const k of Object.keys(r || {})) {
+        const nk = String(k || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9_]/g, '');
+        s.add(nk);
+      }
+    }
+    return Array.from(s).sort();
+  }, [rows]);
 
   const onSignIn = async () => {
     if (!selected) return;
@@ -250,6 +276,20 @@ export default function StaffAttendance() {
               >
                 ⏏ Sign Out
               </button>
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="secondary-btn" onClick={() => setDebugVisible(v => !v)}>
+                {debugVisible ? 'Hide debug' : 'Show debug'}
+              </button>
+              {debugVisible && (
+                <div style={{ background: 'var(--panel-bg)', padding: 10, border: '1px dashed var(--light-border)', borderRadius: 6, width: '100%' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Debug — attendance</div>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>rows: {rows.length} • grouped: {grouped.length} • normalizedKeys: {normalizedKeys.length} • staffOptions: {staffOptions.length}</div>
+                  <pre style={{ maxHeight: 220, overflow: 'auto', fontSize: 12, marginTop: 8, whiteSpace: 'pre-wrap' }}>
+{JSON.stringify({ rowsPreview: rows.slice(0, 6), normalizedKeys, staffOptions }, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
         </div>

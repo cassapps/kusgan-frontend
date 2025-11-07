@@ -327,6 +327,9 @@ tbody tr.row-link:hover { background:#eef2ff; }
 /* Keep key tables aligned */
 table.aligned{ table-layout:fixed; margin-bottom:40px; }
 
+/* Utility: left-align full name cells in members table (row cells only) */
+.td-fullname{ text-align: left; }
+
 /* Payments table header styling */
 .payments-table thead th{ text-align:center; vertical-align:middle; }
 .payments-table thead th .th-sub{
@@ -422,7 +425,7 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
   border-radius:16px; padding:16px; box-shadow:0 10px 24px rgba(0,0,0,0.05);
   /* Slightly wider to accommodate longer labels */
   width: 85%;
-  margin: 0; /* left-aligned */
+  margin: 0 0 28px 0; /* left-aligned; add bottom spacing before tables */
 }
 .member-photo{ display:flex; align-items:flex-start; }
 .member-photo .photo-box{ width: 340px; max-width: 360px; aspect-ratio: 3 / 4; overflow:hidden; border-radius:16px; border:1px solid var(--light-border, #e5e7eb); background:#fafbff; }
@@ -497,7 +500,6 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
   margin: 0; /* rely on card padding for bottom spacing */
   margin-top:auto; /* push actions to align with bottom of photo */
 }
-.dashboard-grid-3x3 { /* duplicate definition removed - unified above */ }
 /* Buttons fill their grid cell; height matches back/logout (44px via .primary-btn/.back-btn) */
 .member-actions .primary-btn,
 .member-actions .button,

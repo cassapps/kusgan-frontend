@@ -280,9 +280,102 @@ function doGet(e){
       return asJson_({ ok:true, sheet:'Attendance', date:dateStr, headers:header, rows:attRows, data:attRows });
     }
 
+  // quick attendance append: minimal, fast path for client optimistic writes
+  // POST form: op=quick_attendance_append, Staff=..., wantsOut=true|false
+  // returns { ok, created, rowNumber, date, time }
+
   if (action === 'pricing') return asJson_(listPricing_());
   if (action === 'members') return asJson_(listMembersLite_());
   if (action === 'payments') return asJson_(listPayments_());
+
+    if (action === 'dashboard' || action === 'summary') {
+      try {
+        // Gather data
+        const membersRes = listMembersLite_();
+        const pricingRes = listPricing_();
+        const paymentsRes = listPayments_();
+
+        // GymEntries sheet rows
+        const gymSh = getSheet_('GymEntries');
+        const gymHeader = readHeader_(gymSh);
+        const gymRows = rowsAsObjects_(gymSh, gymHeader);
+
+        // Build pricing flags map
+        const pricingFlags = new Map();
+        const truthy = function(v){ var s = String(v||'').trim().toLowerCase(); return s==='yes'||s==='y'||s==='true'||s==='1'; };
+        (pricingRes.rows||pricingRes.data||[]).forEach(function(r){
+          var name = String(r.Particulars||'').trim(); if(!name) return;
+          var gymFlag = truthy(r['Gym membership'] || r['Gym Membership'] || r['GymMembership'] || r['Membership']);
+          var coachFlag = truthy(r['Coach subscription'] || r['Coach Subscription'] || r['CoachSubscription'] || r['Coach']);
+          pricingFlags.set(name.toLowerCase(), { gym: gymFlag, coach: coachFlag });
+        });
+
+        // Group payments by member id
+        const paymentsByMember = new Map();
+        (paymentsRes.rows||paymentsRes.data||[]).forEach(function(p){
+          var id = String(p.MemberID || p.member_id || p.id || p.Member || '').trim();
+          if(!id) return; if(!paymentsByMember.has(id)) paymentsByMember.set(id, []);
+          paymentsByMember.get(id).push(p);
+        });
+
+        // Helper to compute membership/coach status
+        function computeStatusForPayments(rows){
+          var membershipEnd = null, coachEnd = null;
+          var today = new Date();
+          for(var i=0;i<rows.length;i++){
+            var r = rows[i];
+            var tag = String(r.Particulars||r.particulars||r.Type||r.type||'').trim();
+            var key = tag.toLowerCase();
+            var flags = pricingFlags.get(key) || { gym: null, coach: null };
+            var gymUntil = r.GymValidUntil || r.gymvaliduntil || r.gym_valid_until || r.gym_until || r.EndDate || r.enddate || r.end_date || r.end || r.valid_until || r.expiry || r.expires || r.until;
+            var coachUntil = r.CoachValidUntil || r.coachvaliduntil || r.coach_valid_until || r.coach_until;
+            var end = gymUntil || coachUntil;
+            if (gymUntil || end){
+              var g = gymUntil ? new Date(gymUntil) : (end ? new Date(end) : null);
+              if (g && (flags.gym === true || (flags.gym === null && /member|gym/i.test(tag)))){
+                if (!membershipEnd || g > membershipEnd) membershipEnd = g;
+              }
+            }
+            if (coachUntil || end){
+              var c = coachUntil ? new Date(coachUntil) : (end ? new Date(end) : null);
+              if (c && (flags.coach === true || (flags.coach === null && /coach|trainer|pt/i.test(tag)))){
+                if (!coachEnd || c > coachEnd) coachEnd = c;
+              }
+            }
+          }
+          return { membershipEnd: membershipEnd, membershipState: (membershipEnd ? (membershipEnd >= today ? 'active' : 'expired') : null), coachEnd: coachEnd, coachActive: !!(coachEnd && coachEnd >= today) };
+        }
+
+        // Compute member-level totals
+        var totalMembers = (membersRes.rows||membersRes.data||[]).length;
+        var activeGym = 0, activeCoach = 0;
+        (membersRes.rows||membersRes.data||[]).forEach(function(m){
+          var id = String(m.MemberID || m.member_id || m.id || '').trim();
+          var pays = paymentsByMember.get(id) || [];
+          var st = computeStatusForPayments(pays);
+          if (st.membershipState === 'active') activeGym++;
+          if (st.coachActive) activeCoach++;
+        });
+
+        // Visits today and checked-in
+        var todayY = ymdPH_(new Date());
+        var visitsToday = gymRows.filter(function(e){ var d = e.Date || e.date; if(!d) return false; return ymdPH_(new Date(d)) === todayY; });
+        var uniqueVisited = {};
+        visitsToday.forEach(function(e){ var id = String(e.MemberID || e.member_id || e.id || '').trim(); if(id) uniqueVisited[id]=true; });
+        var visitedToday = Object.keys(uniqueVisited).length;
+        var coachToday = 0;
+        Object.keys(uniqueVisited).forEach(function(id){ var pays = paymentsByMember.get(id) || []; var st = computeStatusForPayments(pays); if (st.coachActive) coachToday++; });
+        var checkedIn = visitsToday.filter(function(e){ return !String(e.TimeOut || e.timeout || '').trim(); }).length;
+
+        // Revenue today
+        var cashToday = 0, gcashToday = 0, totalPaymentsToday = 0;
+        (paymentsRes.rows||paymentsRes.data||[]).forEach(function(p){
+          var d = p.Date || p.date || p.pay_date; if(!d) return; if (ymdPH_(new Date(d)) !== todayY) return; var amt = Number(p.Cost || p.amount || 0) || 0; totalPaymentsToday += amt; var mode = String(p.Mode || p.mode || p.method || '').toLowerCase(); if(mode === 'cash') cashToday += amt; if(mode === 'gcash') gcashToday += amt;
+        });
+
+        return asJson_({ ok:true, totalMembers, activeGym, activeCoach, visitedToday, coachToday, checkedIn, cashToday, gcashToday, totalPaymentsToday });
+      } catch(err){ return asJson_({ ok:false, error: String(err) }); }
+    }
 
     const sheetName = p.sheet;
     if (!sheetName) return asJson_({ ok:false, error:'Missing sheet name' });
@@ -371,7 +464,115 @@ function doPost(e){
       return asJson_({ ok:true, created, rowNumber, date:dateStr, time:timeNow });
     }
 
+    // Quick attendance append (fast path for UI optimistic writes)
+    if (op === 'quick_attendance_append'){
+      const sh = getSheet_('Attendance');
+      const header = readHeader_(sh);
+      const lock = LockService.getScriptLock(); try{ lock.tryLock(5000); }catch(_){ }
+
+      const rowObj = data.row ? data.row : data;
+      const staff = String(rowObj.Staff ?? rowObj.staff ?? rowObj.StaffName ?? rowObj.staffName ?? '').trim();
+      // Log incoming quick attendance payload for debugging (lightweight)
+      try { Logger.log('quick_attendance_append payload: %s', JSON.stringify({ raw: rowObj, staff: staff })); } catch(_){ }
+      if (!staff) return asJson_({ ok:false, error:'Missing Staff' });
+
+      const now = nowPH_();
+      const dateStr = ymdPH_(now);
+      const timeNow = hmPH_(now);
+
+      const wantsOut = (!!rowObj.TimeOut && String(rowObj.TimeOut).length>0) || !!rowObj.wantsOut;
+
+      let rowNumber = -1, created = false;
+
+      if (!wantsOut){
+        const obj = { Date: dateStr, Staff: staff, TimeIn: timeNow, TimeOut: '', NoOfHours: '' };
+        appendByHeader_(sh, header, obj);
+        rowNumber = sh.getLastRow();
+        created = true;
+      } else {
+        rowNumber = findLastOpenRow_(sh, header, staff, dateStr);
+        if (rowNumber === -1){
+          const obj = { Date: dateStr, Staff: staff, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
+          appendByHeader_(sh, header, obj);
+          rowNumber = sh.getLastRow();
+          created = true;
+        } else {
+          const inCol = header.indexOf('TimeIn');
+          const outCol = header.indexOf('TimeOut');
+          const hrsCol = header.indexOf('NoOfHours');
+          const row = sh.getRange(rowNumber, 1, 1, header.length).getValues()[0];
+          row[outCol] = timeNow;
+          const tin = String(row[inCol] || '');
+          const tout = String(row[outCol] || '');
+          if (hrsCol !== -1 && tin && tout) row[hrsCol] = sessionHours_(dateStr, tin, tout);
+          sh.getRange(rowNumber, 1, 1, header.length).setValues([row]);
+        }
+      }
+
+      try{ lock.releaseLock(); }catch(_){ }
+      return asJson_({ ok:true, created, rowNumber, date:dateStr, time:timeNow });
+    }
+
     // GymEntries ops (member check-in/out)
+    // Quick append endpoint for faster client check-ins/check-outs (minimal validation)
+    if (op === 'quick_gym_append'){
+      const sh = getSheet_('GymEntries');
+      const header = readHeader_(sh);
+      const lock = LockService.getScriptLock(); try{ lock.tryLock(5000); }catch(_){ }
+
+      const rowObj = data.row ? data.row : data;
+      const memberId = String(rowObj.MemberID || rowObj.memberId || rowObj.memberID || '').trim();
+      // Log incoming quick gym payload for debugging (lightweight)
+      try { Logger.log('quick_gym_append payload: %s', JSON.stringify({ raw: rowObj, memberId: memberId })); } catch(_){ }
+      if (!memberId) return asJson_({ ok:false, error:'MemberID is required' });
+
+      const now = nowPH_();
+      const dateStr = ymdPH_(now);
+      const timeNow = hmPH_(now);
+
+      const wantsOut = (!!rowObj.TimeOut && String(rowObj.TimeOut).length>0) || !!rowObj.wantsOut;
+
+      let rowNumber = -1, created = false;
+
+      if (!wantsOut){
+          const obj = {
+            Date: dateStr,
+            MemberID: memberId,
+            TimeIn: timeNow,
+            TimeOut: '',
+            NoOfHours: '',
+            Coach: rowObj.Coach || rowObj.coach || '',
+            Focus: rowObj.Focus || rowObj.focus || '',
+            Comments: rowObj.Comments || rowObj.comments || ''
+          };
+          appendByHeader_(sh, header, obj);
+          rowNumber = sh.getLastRow();
+          created = true;
+      } else {
+        // try to close the last open row for this member today
+        rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
+        if (rowNumber === -1){
+          const obj = { Date: dateStr, MemberID: memberId, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
+          appendByHeader_(sh, header, obj);
+          rowNumber = sh.getLastRow();
+          created = true;
+        } else {
+          const inCol = header.indexOf('TimeIn');
+          const outCol = header.indexOf('TimeOut');
+          const hrsCol = header.indexOf('NoOfHours');
+          const row = sh.getRange(rowNumber, 1, 1, header.length).getValues()[0];
+          row[outCol] = timeNow;
+          const tin = String(row[inCol] || '');
+          const tout = String(row[outCol] || '');
+          if (hrsCol !== -1 && tin && tout) row[hrsCol] = sessionHours_(dateStr, tin, tout);
+          sh.getRange(rowNumber, 1, 1, header.length).setValues([row]);
+        }
+      }
+
+      try{ lock.releaseLock(); }catch(_){ }
+      return asJson_({ ok:true, created, rowNumber, date:dateStr, time:timeNow });
+    }
+
     if (op === 'gymclockin' || op === 'gymclockout' || op === 'upsertgymentry'){
       const sh = getSheet_('GymEntries');
       const header = readHeader_(sh);

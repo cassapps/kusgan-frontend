@@ -13,6 +13,9 @@ import {
   fetchMemberBundle,
   fetchPricing,
 } from "../api/sheets";
+import LoadingSkeleton from "../components/LoadingSkeleton";
+import VisitViewModal from "../components/VisitViewModal";
+import events from "../lib/events";
 
 const toKey = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "_");
 const norm = (row) => Object.fromEntries(Object.entries(row || {}).map(([k, v]) => [toKey(k), v]));
@@ -264,10 +267,17 @@ export default function MemberDetail() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    // subscribe to events to refresh bundle if member updated or gym entry added
+    const unsub1 = events.on('member:updated', (payload) => {
+      try { const mid = String(firstOf(member||{}, ["memberid","member_id","id"])||"").trim(); if (mid) refreshBundle(); } catch(e) {}
+    });
+    const unsub2 = events.on('gymEntry:added', (entry) => {
+      try { const mid = String(firstOf(member||{}, ["memberid","member_id","id"])||"").trim(); if (!mid) return; const entryMid = String(entry?.MemberID||entry?.memberid||entry?.Member||'').trim(); if (entryMid && entryMid === mid) refreshBundle(); } catch(e) {}
+    });
+    return () => { alive = false; unsub1(); unsub2(); };
   }, [memberIdParam, idParam, passed]);
 
-  if (loading) return <div className="content">Loading…</div>;
+  if (loading) return <div className="content"><LoadingSkeleton /></div>;
   if (!member) return (
     <div className="content">
       <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
@@ -303,6 +313,9 @@ export default function MemberDetail() {
   const [openProgView, setOpenProgView] = useState(false);
   const [viewProgressIndex, setViewProgressIndex] = useState(-1);
   const [imgFailed, setImgFailed] = useState(false);
+  const [visitsLimit, setVisitsLimit] = useState(10);
+  const [progressLimit, setProgressLimit] = useState(10);
+  const [paymentsLimit, setPaymentsLimit] = useState(10);
 
   // Reset image-failed flag whenever the computed photo URL changes
   useEffect(() => { setImgFailed(false); }, [photoUrl]);
@@ -547,8 +560,9 @@ export default function MemberDetail() {
         row={viewProgressIndex >= 0 ? progress[viewProgressIndex] : null}
       />
 
-      <h3>Gym Visits</h3>
-      <table className="aligned">
+      <div className="panel">
+        <div className="panel-header">Gym Visits</div>
+  <table className="aligned">
         <thead>
           <tr>
             <th>Date</th><th>Time In</th><th>Time Out</th><th>Total Hours</th><th>Coach</th><th>Focus</th>
@@ -557,7 +571,7 @@ export default function MemberDetail() {
         <tbody>
           {visits.length === 0 ? (
             <tr><td colSpan={6}>-</td></tr>
-          ) : visits.slice(0, 30).map((v, i) => (
+          ) : visits.slice(0, visitsLimit).map((v, i) => (
             <tr key={i} style={{ cursor: "pointer" }} onClick={() => setSelectedVisit(v)}>
               <td>{fmtDate(v.date)}</td>
               <td>{fmtTime(v.timeIn)}</td>
@@ -568,30 +582,27 @@ export default function MemberDetail() {
             </tr>
           ))}
         </tbody>
-      </table>
-
-      {/* Modal for Workouts Done and Comments */}
-      {selectedVisit && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelectedVisit(null)}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 24, minWidth: 320, maxWidth: 420, boxShadow: "0 6px 24px rgba(0,0,0,.2)" }} onClick={e => e.stopPropagation()}>
-            <h4>Visit Details</h4>
-            <div><b>Date:</b> {fmtDate(selectedVisit.date)}</div>
-            <div><b>Time In:</b> {fmtTime(selectedVisit.timeIn)}</div>
-            <div><b>Time Out:</b> {fmtTime(selectedVisit.timeOut)}</div>
-            <div><b>Total Hours:</b> {display(selectedVisit.totalHours)}</div>
-            <div><b>Coach:</b> {display(selectedVisit.coach)}</div>
-            <div><b>Focus:</b> {display(selectedVisit.focus)}</div>
-            <div style={{ marginTop: 12 }}><b>Workouts Done:</b><br />{display(selectedVisit.workouts)}</div>
-            <div style={{ marginTop: 12 }}><b>Comments:</b><br />{display(selectedVisit.comments)}</div>
-            <div style={{ textAlign: "right", marginTop: 18 }}>
-              <button className="primary-btn" onClick={() => setSelectedVisit(null)}>Close</button>
-            </div>
+        </table>
+        {visits.length > visitsLimit && (
+          <div style={{ textAlign: "center", marginTop: 8 }}>
+            <button className="button" onClick={() => setVisitsLimit((n) => (n < visits.length ? Math.min(n + 10, visits.length) : 10))}>
+              {visitsLimit < visits.length ? `Load ${Math.min(10, visits.length - visitsLimit)} more` : 'Show less'}
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      <h3>Progress</h3>
-      <table className="aligned">
+          {/* Visit detail modal (styled like progress view) */}
+          <VisitViewModal open={!!selectedVisit} onClose={() => setSelectedVisit(null)} row={selectedVisit} />
+          {visits.length > 200 && (
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <button className="button" onClick={() => setShowAllVisits(s => !s)}>{showAllVisits ? "Show less" : `Show all (${visits.length})`}</button>
+            </div>
+          )}
+
+      <div className="panel">
+        <div className="panel-header">Progress</div>
+        <table className="aligned">
         <thead>
           <tr>
             <th>Date</th><th>No</th><th>Weight</th><th>BMI</th><th>Muscle Mass</th><th>Body Fat</th>
@@ -600,7 +611,7 @@ export default function MemberDetail() {
         <tbody>
           {progress.length === 0 ? (
             <tr><td colSpan={6}>-</td></tr>
-          ) : progress.slice(0, 30).map((r, i) => {
+          ) : progress.slice(0, progressLimit).map((r, i) => {
             const d = asDate(firstOf(r, ["date","recorded","log_date","timestamp"]));
             const no = firstOf(r, ["no","entry_no","seq","number"]);
             const weight = firstOf(r, [
@@ -625,10 +636,19 @@ export default function MemberDetail() {
             );
           })}
         </tbody>
-      </table>
+        </table>
+        {progress.length > progressLimit && (
+          <div style={{ textAlign: "center", marginTop: 8 }}>
+            <button className="button" onClick={() => setProgressLimit((n) => (n < progress.length ? Math.min(n + 10, progress.length) : 10))}>
+              {progressLimit < progress.length ? `Load ${Math.min(10, progress.length - progressLimit)} more` : 'Show less'}
+            </button>
+          </div>
+        )}
+      </div>
 
-      <h3>Payments</h3>
-      <table className="aligned payments-table">
+      <div className="panel">
+        <div className="panel-header">Payments</div>
+        <table className="aligned payments-table">
         <thead>
           <tr>
             <th>Date</th>
@@ -650,7 +670,7 @@ export default function MemberDetail() {
         <tbody>
           {payments.length === 0 ? (
             <tr><td colSpan={6}>-</td></tr>
-          ) : payments.slice(0, 30).map((p, i) => {
+          ) : payments.slice(0, paymentsLimit).map((p, i) => {
             const paid = asDate(firstOf(p, ["date","paid_on","created","timestamp"]));
             const particulars = firstOf(p, ["particulars","type","item","category","product","paymentfor","plan","description"]);
             const gymUntil = asDate(firstOf(p, ["gymvaliduntil","gym_valid_until","gym_until"]));
@@ -669,7 +689,15 @@ export default function MemberDetail() {
             );
           })}
         </tbody>
-      </table>
+        </table>
+        {payments.length > paymentsLimit && (
+          <div style={{ textAlign: "center", marginTop: 8 }}>
+            <button className="button" onClick={() => setPaymentsLimit((n) => (n < payments.length ? Math.min(n + 10, payments.length) : 10))}>
+              {paymentsLimit < payments.length ? `Load ${Math.min(10, payments.length - paymentsLimit)} more` : 'Show less'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

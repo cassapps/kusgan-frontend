@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
 import QrScanModal from "../components/QrScanModal";
-import { fetchMemberBundle, fetchPricing, fetchMembers, gymClockIn, gymClockOut } from "../api/sheets";
+import LoadingSkeleton from "../components/LoadingSkeleton";
+import { fetchMemberBundle, fetchPricing, fetchMembers, gymClockIn, gymClockOut, gymQuickAppend } from "../api/sheets";
 
 // Helper copied to keep page self-contained
 const MANILA_TZ = "Asia/Manila";
@@ -105,12 +106,14 @@ export default function CheckIn(){
   const [status, setStatus] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [coach, setCoach] = useState("");
-  const [focus, setFocus] = useState(FOCUSES[0]);
+  const [focus, setFocus] = useState("");
   const [resultText, setResultText] = useState("");
   const [showToast, setShowToast] = useState(false);
   const [comments, setComments] = useState("");
   const [workouts, setWorkouts] = useState("");
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const pendingWriteRef = useRef(null);
   const toastTimeout = useRef(null);
 
   // Load members for dropdown
@@ -148,6 +151,9 @@ export default function CheckIn(){
     return () => { alive = false; };
   }, []);
 
+  // Reset image-failed flag whenever we load a new bundle/member
+  useEffect(() => { setImgFailed(false); }, [bundle?.member]);
+
   const loadData = async (id) => {
     const [b, p] = await Promise.all([fetchMemberBundle(id), fetchPricing()]);
     const rows = (p?.rows || p?.data || []);
@@ -162,6 +168,11 @@ export default function CheckIn(){
     const id = String(raw||"").trim();
     if (!id) return;
     setMemberId(id);
+    // Open confirm modal immediately so user sees the UI while data loads
+    setConfirmOpen(true);
+    setResultText("");
+    setBundle(null);
+    setStatus(null);
     const loaded = await loadData(id);
     const r = loaded?.b?.member || null;
     const freshStatus = loaded?.status;
@@ -169,7 +180,7 @@ export default function CheckIn(){
     // Check membership status using freshly loaded status
     if (!r || freshStatus?.membershipState !== "active") {
       setResultText(null);
-      setConfirmOpen(true);
+      // modal already open; show result after a tiny pause for UX
       setTimeout(() => {
         setResultText("NO ACTIVE GYM MEMBERSHIP");
       }, 100);
@@ -183,20 +194,16 @@ export default function CheckIn(){
     if (open){
       setIsCheckedIn(true);
       setResultText("");
-      setConfirmOpen(true); // show card to confirm check-out
+      // modal already open; show card to confirm check-out
     } else {
       setIsCheckedIn(false);
       setResultText("");
-      setConfirmOpen(true); // show card to confirm check-in + options
+      // modal already open; show card to confirm check-in + options
     }
   };
 
   const confirmCheckIn = async () => {
-    await gymClockIn(memberId, {
-      Coach: status?.coachActive ? coach : undefined,
-      Focus: status?.coachActive ? focus : undefined,
-      Comments: comments
-    });
+    // Optimistic UI: show success immediately and perform the write in background
     const timeStr = new Intl.DateTimeFormat('en-US', { timeZone: MANILA_TZ, month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(new Date());
     const name = m?.nick || 'Member';
     setResultText(`${name} checked in on ${timeStr}.`);
@@ -204,18 +211,82 @@ export default function CheckIn(){
     setConfirmOpen(false);
     setComments("");
     setWorkouts("");
+    setIsCheckedIn(true);
+    // Update local bundle optimistically so UI that reads bundle.gymEntries sees the new row
+    // include Coach/Focus/Comments in the optimistic entry (only if provided)
+    // capture a stable timestamp to help revert if needed
+    const nowIso = new Date().toISOString();
+    try {
+      setBundle(prev => {
+        const opt = { MemberID: memberId, Date: nowIso, TimeIn: nowIso };
+        if (status?.coachActive && coach) opt.Coach = coach;
+        if (status?.coachActive && focus) opt.Focus = focus;
+        if (comments) opt.Comments = comments;
+        return { ...(prev || {}), gymEntries: [opt, ...(prev?.gymEntries || [])] };
+      });
+    } catch (e) { /* ignore optimistic update failure */ }
+
+    // clear any previous toast timer and set a new one
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    // provide an undo window before firing the network call
+    const DELAY_MS = 2000;
+    // store a cancelable pending write
+    if (pendingWriteRef.current && pendingWriteRef.current.timer) {
+      clearTimeout(pendingWriteRef.current.timer);
+      pendingWriteRef.current = null;
+    }
+    pendingWriteRef.current = {
+      type: 'checkin',
+      memberId,
+      nowIso,
+      aborted: false,
+      timer: setTimeout(async () => {
+        // if undone, skip
+        if (pendingWriteRef.current?.aborted) { pendingWriteRef.current = null; return; }
+        try {
+          const payload = {};
+          if (status?.coachActive && coach) payload.Coach = coach;
+          if (status?.coachActive && focus) payload.Focus = focus;
+          if (comments) payload.Comments = comments;
+          try { await gymQuickAppend(memberId, payload); }
+          catch (fastErr) {
+            const payload2 = {};
+            if (status?.coachActive && coach) payload2.Coach = coach;
+            if (status?.coachActive && focus) payload2.Focus = focus;
+            if (comments) payload2.Comments = comments;
+            await gymClockIn(memberId, payload2);
+          }
+          // success: clear pending
+          pendingWriteRef.current = null;
+          // keep toast briefly to show success then clear
+          toastTimeout.current = setTimeout(() => { setShowToast(false); setResultText(''); }, 1400);
+        } catch (err) {
+          console.error('gymClockIn failed', err);
+          // show error and revert optimistic change
+          setResultText('Check-in failed — please retry');
+          setShowToast(true);
+          setIsCheckedIn(false);
+          setBundle(prev => {
+            if (!prev) return prev;
+            const filtered = (prev.gymEntries || []).filter(e => !(String(e.MemberID||'') === String(memberId) && String(e.TimeIn||'') === String(nowIso)));
+            return { ...prev, gymEntries: filtered };
+          });
+          pendingWriteRef.current = null;
+          toastTimeout.current = setTimeout(() => { setShowToast(false); setResultText(''); }, 4000);
+        }
+      }, DELAY_MS)
+    };
+    // show undoable toast for the delay window
+    setShowToast(true);
     toastTimeout.current = setTimeout(() => {
-      setShowToast(false);
-      setResultText("");
+      // if pending write still exists, leave toast (it will be cleared after success/failure)
+      if (!pendingWriteRef.current) { setShowToast(false); setResultText(''); }
     }, 3500);
 
   };
 
   const confirmCheckOut = async () => {
-    await gymClockOut(memberId, {
-      Workouts: workouts
-    });
+    // Optimistic UI: update local state immediately
     const timeStr = new Intl.DateTimeFormat('en-US', { timeZone: MANILA_TZ, month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(new Date());
     const name = m?.nick || 'Member';
     setResultText(`${name} checked out on ${timeStr}.`);
@@ -223,10 +294,66 @@ export default function CheckIn(){
     setConfirmOpen(false);
     setWorkouts("");
     setComments("");
+    setIsCheckedIn(false);
+    // Optimistically add TimeOut to the first open entry in bundle.gymEntries
+    try {
+      setBundle(prev => {
+        if (!prev) return prev;
+        const entries = (prev.gymEntries || []).slice();
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          const toVal = String(e?.TimeOut || "").trim();
+          if (!toVal || toVal === "-" || toVal === "—") {
+            entries[i] = { ...e, TimeOut: new Date().toISOString() };
+            break;
+          }
+        }
+        return { ...prev, gymEntries: entries };
+      });
+    } catch (e) { /* ignore optimistic update failure */ }
+
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    // undoable check-out: delay network write to allow undo
+    const DELAY_MS = 2000;
+    if (pendingWriteRef.current && pendingWriteRef.current.timer) {
+      clearTimeout(pendingWriteRef.current.timer);
+      pendingWriteRef.current = null;
+    }
+    pendingWriteRef.current = {
+      type: 'checkout',
+      memberId,
+      aborted: false,
+      timer: setTimeout(async () => {
+        if (pendingWriteRef.current?.aborted) { pendingWriteRef.current = null; return; }
+        try {
+          try { await gymQuickAppend(memberId, { wantsOut: true, Workouts: workouts }); }
+          catch (fastErr) { await gymClockOut(memberId, { Workouts: workouts }); }
+          pendingWriteRef.current = null;
+          toastTimeout.current = setTimeout(() => { setShowToast(false); setResultText(''); }, 1400);
+        } catch (err) {
+          console.error('gymClockOut failed', err);
+          setResultText('Check-out failed — please retry');
+          setShowToast(true);
+          setIsCheckedIn(true);
+          // revert optimistic change: remove TimeOut we added
+          setBundle(prev => {
+            if (!prev) return prev;
+            const entries = (prev.gymEntries || []).map(e => {
+              if (String(e.MemberID||'') === String(memberId) && String(e.TimeOut||'').length > 0) {
+                return { ...e, TimeOut: '' };
+              }
+              return e;
+            });
+            return { ...prev, gymEntries: entries };
+          });
+          pendingWriteRef.current = null;
+          toastTimeout.current = setTimeout(() => { setShowToast(false); setResultText(''); }, 4000);
+        }
+      }, DELAY_MS)
+    };
+    setShowToast(true);
     toastTimeout.current = setTimeout(() => {
-      setShowToast(false);
-      setResultText("");
+      if (!pendingWriteRef.current) { setShowToast(false); setResultText(''); }
     }, 3500);
   };
 
@@ -296,8 +423,12 @@ export default function CheckIn(){
               <>
                 {/* Top row: bigger photo + names */}
                 <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:16, alignItems:'center' }}>
-                  <div style={{ width:150, height:200, borderRadius:12, overflow:'hidden', border:'1px solid #e7e8ef', background:'#fafbff' }}>
-                    {m.photo ? <img src={m.photo} alt="Member" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <div style={{ display:'flex', width:'100%', height:'100%', alignItems:'center', justifyContent:'center', color:'#999' }}>No Photo</div>}
+                    <div style={{ width:150, height:200, borderRadius:12, overflow:'hidden', border:'1px solid #e7e8ef', background:'#fafbff' }}>
+                    {m.photo && !imgFailed ? (
+                      <img src={m.photo} alt="Member" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={(e)=>{ setImgFailed(true); e.currentTarget.onerror = null; }} />
+                    ) : (
+                      <div style={{ display:'flex', width:'100%', height:'100%', alignItems:'center', justifyContent:'center', color:'#999' }}>No Photo</div>
+                    )}
                   </div>
                   <div>
                     <div style={{ fontWeight:900, fontSize:28, lineHeight:1.1 }}>{m.nick || '-'}</div>
@@ -339,7 +470,7 @@ export default function CheckIn(){
                   })()}
                 </div>
               </>
-            ) : <div>Loading…</div>}
+            ) : <LoadingSkeleton />}
 
             {!resultText && (
               <>
@@ -367,6 +498,7 @@ export default function CheckIn(){
                         <div className="field">
                           <label className="label">Workout Focus</label>
                           <select value={focus} onChange={e=>setFocus(e.target.value)}>
+                            <option value="">(none)</option>
                             {FOCUSES.map(f => <option key={f} value={f}>{f}</option>)}
                           </select>
                         </div>
@@ -389,9 +521,45 @@ export default function CheckIn(){
 
       {/* Toast message for check-in */}
       {showToast && (
-        <div style={{ position:'fixed', top:24, right:24, zIndex:2000, pointerEvents:'none' }}>
-          <div style={{ background:'#333', color:'#fff', fontWeight:600, fontSize:16, borderRadius:8, boxShadow:'0 2px 12px rgba(0,0,0,.12)', padding:'10px 22px', minWidth:180, textAlign:'left', letterSpacing:0.1 }}>
-            {resultText}
+        <div style={{ position:'fixed', top:24, right:24, zIndex:2000, pointerEvents: pendingWriteRef.current ? 'auto' : 'none' }}>
+          <div style={{ display:'flex', gap:12, alignItems:'center', background:'#333', color:'#fff', fontWeight:600, fontSize:16, borderRadius:8, boxShadow:'0 2px 12px rgba(0,0,0,.12)', padding:'10px 14px', minWidth:220, textAlign:'left', letterSpacing:0.1 }}>
+            <div style={{ flex: 1 }}>{resultText}</div>
+            {pendingWriteRef.current ? (
+              <button style={{ background:'transparent', color:'#fff', border:'1px solid rgba(255,255,255,0.18)', padding:'6px 10px', borderRadius:6, cursor:'pointer' }} onClick={() => {
+                // Undo handler
+                const p = pendingWriteRef.current;
+                if (!p) return;
+                try {
+                  if (p.timer) clearTimeout(p.timer);
+                } catch (e) {}
+                pendingWriteRef.current = null;
+                // revert optimistic changes
+                if (p.type === 'checkin') {
+                  setIsCheckedIn(false);
+                  setBundle(prev => {
+                    if (!prev) return prev;
+                    const filtered = (prev.gymEntries || []).filter(e => !(String(e.MemberID||'') === String(p.memberId) && String(e.TimeIn||'') === String(p.nowIso)));
+                    return { ...prev, gymEntries: filtered };
+                  });
+                } else if (p.type === 'checkout') {
+                  setIsCheckedIn(true);
+                  setBundle(prev => {
+                    if (!prev) return prev;
+                    const entries = (prev.gymEntries || []).map(e => {
+                      if (String(e.MemberID||'') === String(p.memberId) && String(e.TimeOut||'').length > 0) {
+                        return { ...e, TimeOut: '' };
+                      }
+                      return e;
+                    });
+                    return { ...prev, gymEntries: entries };
+                  });
+                }
+                setResultText('Action cancelled');
+                setShowToast(true);
+                if (toastTimeout.current) clearTimeout(toastTimeout.current);
+                toastTimeout.current = setTimeout(() => { setShowToast(false); setResultText(''); }, 1800);
+              }}>Undo</button>
+            ) : null}
           </div>
         </div>
       )}

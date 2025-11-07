@@ -1,5 +1,7 @@
 const BASE = import.meta.env.VITE_GAS_BASE;
 
+// For batch requests, consider accepting an array of sheet names and returning a combined result.
+// Example: gasList(['Members', 'Payments'])
 export async function gasList(sheet) {
   const url = `${BASE}?sheet=${encodeURIComponent(sheet)}&op=list`;
   const r = await fetch(url);

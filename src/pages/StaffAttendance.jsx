@@ -150,6 +150,11 @@ export default function StaffAttendance() {
       const formattedIn = inVal ? fmtManilaTime(inVal) : '';
       const formattedOut = outVal ? fmtManilaTime(outVal) : '';
       if (tinRaw) obj.sessions.push({ in: inVal, out: outVal, formattedIn, formattedOut });
+      // avoid duplicate identical sessions
+      if (tinRaw) {
+        const exists = obj.sessions.some(s => String(s.in||'') === String(inVal||'') && String(s.out||'') === String(outVal||''));
+        if (!exists) obj.sessions.push({ in: inVal, out: outVal, formattedIn, formattedOut });
+      }
       const hrs = hoursBetween(dateStr, tinRaw, toutRaw);
       if (hrs > 0) obj.totalHours = Math.round((obj.totalHours + hrs) * 100) / 100;
       if (tinRaw && !toutRaw) obj.clockedIn = true;
@@ -218,10 +223,11 @@ export default function StaffAttendance() {
       const now = new Date();
       const timeNow = new Intl.DateTimeFormat('en-GB', { timeZone: MANILA_TZ, hour12:false, hour:'2-digit', minute:'2-digit' }).format(now);
       const opt = { Staff: selected, Date: today, TimeIn: timeNow, TimeOut: '' };
+      // optimistic insert at the top
       setRows(prev => [opt, ...prev]);
       setBusy(false);
       try {
-        await attendanceQuickAppend(selected);
+        await attendanceQuickAppend(selected, { Date: today, TimeIn: timeNow });
       } catch (err) {
         console.error('attendanceQuickAppend sign-in failed', err);
         setError('Sign-in failed');
@@ -253,7 +259,7 @@ export default function StaffAttendance() {
       });
       setBusy(false);
       try {
-        await attendanceQuickAppend(selected, { wantsOut: true });
+        await attendanceQuickAppend(selected, { wantsOut: true, Date: today, TimeOut: timeNow });
       } catch (err) {
         console.error('attendanceQuickAppend sign-out failed', err);
         setError('Sign-out failed');

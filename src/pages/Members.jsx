@@ -214,12 +214,8 @@ export default function Members() {
         <button className="button" onClick={() => setOpenAdd(true)}>+ Add Member</button>
       </div>
 
-      {showLoadingToast && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: '#2563eb', color: '#fff', padding: '10px 0', textAlign: 'center', fontWeight: 700, boxShadow: '0 2px 8px rgba(0,0,0,.08)' }}>
-          Loading data, please wait...
-        </div>
-      )}
-      {loading && <LoadingSkeleton />}
+      {/* Top loading toast removed — table shows its own inline Loading message */}
+  {loading && (<div style={{ color: 'var(--muted)', textAlign: 'center', padding: 16 }}>Loading…</div>)}
       {error && <div>Error: {error}</div>}
       {!loading && !error && (
         <div className="panel">

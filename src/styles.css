@@ -330,6 +330,27 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
 /* Utility: left-align full name cells in members table (row cells only) */
 .td-fullname{ text-align: left; }
 
+/* Highlight animation for optimistic updates */
+.optimistic-highlight { animation: optimistic-flash 2s ease; background: rgba(40,167,69,0.06); }
+@keyframes optimistic-flash {
+  0% { background: rgba(40,167,69,0.18); }
+  30% { background: rgba(40,167,69,0.12); }
+  60% { background: rgba(40,167,69,0.08); }
+  100% { background: transparent; }
+}
+
+/* Small spinner used inside action buttons */
+.spinner{
+  display:inline-block;
+  width:14px;
+  height:14px;
+  border:2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius:9999px;
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin{ to { transform: rotate(360deg); } }
+
 /* Payments table header styling */
 .payments-table thead th{ text-align:center; vertical-align:middle; }
 .payments-table thead th .th-sub{

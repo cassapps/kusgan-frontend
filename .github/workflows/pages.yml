@@ -49,5 +49,8 @@ jobs:
       - name: Deploy to gh-pages branch (via peaceiris)
         uses: peaceiris/actions-gh-pages@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer an explicit Personal Access Token stored in GH secret GH_PAGES_TOKEN
+          # (useful if repository or org settings prevent GITHUB_TOKEN write access).
+          # Fallback to the default GITHUB_TOKEN if GH_PAGES_TOKEN is not provided.
+          github_token: ${{ secrets.GH_PAGES_TOKEN || secrets.GITHUB_TOKEN }}
           publish_dir: ./dist

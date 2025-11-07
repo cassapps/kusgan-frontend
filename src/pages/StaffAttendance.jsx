@@ -71,7 +71,7 @@ export default function StaffAttendance() {
     'Coach Elmer',
     'Coach Jojo',
     'Patpat',
-    'Sheen',
+    'Sheena',
     'Jeanette',
     'Xyza',
     'Bezza',
@@ -168,14 +168,30 @@ export default function StaffAttendance() {
     return Array.from(s).sort((a,b)=>a.localeCompare(b));
   }, [grouped, staffOptions]);
 
+  // Determine who is currently clocked in TODAY by scanning all raw rows (not just the visible slice)
   const todayClockedSet = useMemo(() => {
     const s = new Set();
     const today = phTodayYMD();
-    for (const g of grouped) {
-      if (g.date === today && g.clockedIn) s.add(String(g.staff || '').trim().toLowerCase());
+    for (const r of rows || []) {
+      try {
+        // normalize row keys
+        const norm = {};
+        for (const k of Object.keys(r || {})) {
+          const nk = String(k || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9_]/g, '');
+          norm[nk] = r[k];
+        }
+        const staff = String(r.Staff || r.staff || r.Name || r.name || norm.staff || norm.name || '').trim();
+        const dateStr = String(r.Date || r.date || r.DateTime || r.datetime || r.LogDate || r.log_date || '').slice(0,10) || '';
+        const tinRaw = String(r.TimeIn || r.timein || r.time_in || norm.timein || norm.timeinlocal || '').trim();
+        const toutRaw = String(r.TimeOut || r.timeout || r.time_out || norm.timeout || norm.timeoutlocal || '').trim();
+        if (!staff) continue;
+        if ((dateStr === today) && tinRaw && !toutRaw) {
+          s.add(String(staff).trim().toLowerCase());
+        }
+      } catch (e) { /* ignore malformed rows */ }
     }
     return s;
-  }, [grouped]);
+  }, [rows]);
 
   const isClockedInToday = (name) => {
     if (!name) return false;

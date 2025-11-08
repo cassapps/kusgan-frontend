@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ModalWrapper from "./ModalWrapper";
 
 export default function CameraModal({ open, onClose, onCapture }) {
   const videoRef = useRef(null);
@@ -136,11 +137,7 @@ export default function CameraModal({ open, onClose, onCapture }) {
   if (!open) return null;
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 8 }}>
-          <button type="button" aria-label="Close" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+  <ModalWrapper open={open} onClose={onClose} width={720} noWrapper={true}>
 
         {/* Camera selector */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
@@ -175,8 +172,7 @@ export default function CameraModal({ open, onClose, onCapture }) {
         <div style={{ display: "flex", gap: 10, marginTop: 12, justifyContent: "flex-end" }}>
           <button className="button btn-lg" onClick={takeSnapshot} disabled={!!error || !streamRef.current}>Capture</button>
         </div>
-      </div>
-    </div>
+    </ModalWrapper>
   );
 }
 

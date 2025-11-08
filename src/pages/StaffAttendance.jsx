@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import useSWR from 'swr';
+import RefreshBadge from '../components/RefreshBadge.jsx';
 import "../styles.css";
 import { fetchAttendance, attendanceQuickAppend, fetchMembers, fetchSheet, insertRow } from "../api/sheets";
 
@@ -30,6 +32,36 @@ const fmtManilaTime = (value) => {
     return String(value);
   }
 };
+
+// LocalStorage cache for staff attendance (persist recent rows to improve load on published site)
+const STAFF_CACHE_KEY = 'kusgan.staffAttendance.cache.v1';
+const STAFF_CACHE_MAX_AGE = 1000 * 60 * 60; // 1 hour
+
+function loadStaffCacheFromLocalStorage() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(STAFF_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.ts) return null;
+    const age = Date.now() - (parsed.ts || 0);
+    if (age > STAFF_CACHE_MAX_AGE) return null; // stale
+    return Array.isArray(parsed.rows) ? parsed.rows : null;
+  } catch (e) {
+    console.debug('StaffAttendance: failed to load cache from localStorage', e);
+    return null;
+  }
+}
+
+function saveStaffCacheToLocalStorage(rows) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const toSave = { rows: Array.isArray(rows) ? rows : [], ts: Date.now() };
+    window.localStorage.setItem(STAFF_CACHE_KEY, JSON.stringify(toSave));
+  } catch (e) {
+    console.debug('StaffAttendance: failed to save cache to localStorage', e);
+  }
+}
 
 const phTodayYMD = () => {
   const d = new Date();
@@ -108,8 +140,10 @@ const displayTimeFromRaw = (r, timeRaw) => {
 };
 
 export default function StaffAttendance() {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Attempt to hydrate rows from localStorage cache on module load
+  const _initialStaffCache = loadStaffCacheFromLocalStorage();
+  const [rows, setRows] = useState(_initialStaffCache || []);
+  const [loading, setLoading] = useState(!_initialStaffCache);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
@@ -135,29 +169,34 @@ export default function StaffAttendance() {
     }
   };
 
+  // SWR attendance fetcher and hook
+  const attendanceFetcher = async () => {
+    try {
+      const sheetRes = await fetchSheet('Attendance');
+      return sheetRes?.rows ?? sheetRes?.data ?? [];
+    } catch (e) {
+      try {
+        const res = await fetchAttendance();
+        return res?.rows ?? res?.data ?? [];
+      } catch (_) { return []; }
+    }
+  };
+
+  const { data: swrData, error: swrError, isValidating, mutate } = useSWR('attendance:all', attendanceFetcher, { revalidateOnFocus: true, dedupingInterval: 2000, fallbackData: _initialStaffCache });
+  const isRefreshing = !!isValidating;
+
   useEffect(() => { load(false); /* staff list is hardcoded; populate from STAFF_LIST */ setStaffOptions(Array.from(new Set(STAFF_LIST)).sort((a,b)=>a.localeCompare(b))); }, []);
 
   async function load(force = false) {
     setLoading(true);
     setError("");
     try {
-      // Always prefer reading the full Attendance sheet (authoritative staff rows)
-      // so we consistently show historical rows rather than relying on an
-      // endpoint that may return only today's entries.
-      let data = [];
-      try {
-        const sheetRes = await fetchSheet('Attendance');
-        data = sheetRes?.rows ?? sheetRes?.data ?? [];
-      } catch (e) {
-        // fallback to the attendance endpoint if sheet fetch fails
-        try {
-          const res = await fetchAttendance(undefined, force);
-          data = res?.rows ?? res?.data ?? [];
-        } catch (e2) { data = []; }
-      }
+      // Use SWR mutate to revalidate the attendance cache
+      const data = await mutate();
       const finalRows = Array.isArray(data) ? data : [];
       console.debug(`StaffAttendance: loaded ${finalRows.length} rows (force=${!!force})`);
       setRows(finalRows);
+      try { saveStaffCacheToLocalStorage(finalRows); } catch (e) { /* ignore */ }
       return finalRows;
     } catch (e) {
       console.error(e);
@@ -203,7 +242,7 @@ export default function StaffAttendance() {
       if (!res || res.ok === false) {
         throw new Error((res && res.error) ? String(res.error) : 'attendance append failed');
       }
-      // Poll the attendance endpoint until the authoritative row appears (or timeout)
+      // Poll the attendance data (via SWR mutate) until the authoritative row appears (or timeout)
       const wait = (ms) => new Promise(r => setTimeout(r, ms));
       const checkFn = (rowsArr) => {
         try {
@@ -220,9 +259,13 @@ export default function StaffAttendance() {
       let confirmed = false;
       for (let i = 0; i < 8; i++) {
         try {
-          const sheetRes = await fetchSheet('Attendance');
-          const fetched = sheetRes?.rows ?? sheetRes?.data ?? [];
-          if (checkFn(fetched)) { setRows(Array.isArray(fetched) ? fetched : []); confirmed = true; break; }
+          const fetched = await mutate();
+          const fetchedRows = Array.isArray(fetched) ? fetched : [];
+          if (checkFn(fetchedRows)) {
+            setRows(fetchedRows);
+            try { saveStaffCacheToLocalStorage(fetchedRows); } catch (e) { /* ignore */ }
+            confirmed = true; break;
+          }
         } catch (e) {}
         await wait(300);
       }
@@ -286,9 +329,13 @@ export default function StaffAttendance() {
         let confirmed = false;
         for (let i = 0; i < 8; i++) {
           try {
-            const sheetRes = await fetchSheet('Attendance');
-            const fetched = sheetRes?.rows ?? sheetRes?.data ?? [];
-            if (checkFn(fetched)) { setRows(Array.isArray(fetched) ? fetched : []); confirmed = true; break; }
+            const fetched = await mutate();
+            const fetchedRows = Array.isArray(fetched) ? fetched : [];
+            if (checkFn(fetchedRows)) {
+              setRows(fetchedRows);
+              try { saveStaffCacheToLocalStorage(fetchedRows); } catch (e) { /* ignore */ }
+              confirmed = true; break;
+            }
           } catch (e) {}
           await wait(300);
         }
@@ -335,18 +382,41 @@ export default function StaffAttendance() {
   }, [rows, staffOptions]);
 
   const visibleRows = useMemo(() => {
-    // Show the most recent `visibleCount` rows, but keep them in chronological
-    // order (oldest -> newest within that page). This avoids showing the newest
-    // row first which was confusing.
+    // Return the newest `visibleCount` rows (newest first). Each "Load more"
+    // increases visibleCount so the next older items are revealed.
     if (!Array.isArray(rows)) return [];
-    const arr = rows.slice(); // keep original server order
-    const start = Math.max(0, arr.length - visibleCount);
-    return arr.slice(start, arr.length);
+
+    // Build a sortable key for each row using Manila YMD and TimeIn/TimeOut
+    const keyed = rows.map(r => {
+      const ymd = rowDateYMD(r) || String(r?.Date || r?.date || '');
+      const tin = String(r?.TimeIn || r?.timein || r?.time_in || r?.SignIn || r?.signin || '').trim();
+      const tout = String(r?.TimeOut || r?.timeout || r?.time_out || r?.SignOut || r?.signout || '').trim();
+      // Prefer TimeIn for ordering, else TimeOut, else 00:00
+      const timePart = (/^\d{1,2}:\d{2}$/.test(tin) ? tin : (/^\d{1,2}:\d{2}$/.test(tout) ? tout : '00:00'));
+      const key = ymd ? `${ymd}T${timePart}` : `0000-00-00T00:00`;
+      return { r, key };
+    });
+
+    // Sort descending (newest first)
+    keyed.sort((a, b) => b.key.localeCompare(a.key));
+
+    // Take the first `visibleCount` newest rows
+    return keyed.slice(0, visibleCount).map(k => k.r);
   }, [rows, visibleCount]);
+
+  // Sync SWR data into local rows state and persist cache
+  useEffect(() => {
+    if (!swrData) return;
+    try {
+      const final = Array.isArray(swrData) ? swrData : [];
+      setRows(final);
+      try { saveStaffCacheToLocalStorage(final); } catch (e) {}
+    } catch (e) { console.error('StaffAttendance: failed to hydrate SWR data', e); }
+  }, [swrData]);
 
   return (
     <div className="dashboard-content">
-      <h2 className="dashboard-title">Staff Attendance</h2>
+      <h2 className="dashboard-title">Staff Attendance <RefreshBadge show={isRefreshing && !loading} /></h2>
 
       {error && (<div className="small-error" style={{ marginBottom: 12 }}>{error}</div>)}
 

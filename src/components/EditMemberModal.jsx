@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import CameraModal from "./CameraModal";
-import { updateMember, uploadMemberPhoto, fetchMemberById } from "../api/sheets";
+import ModalWrapper from "./ModalWrapper";
+import events from "../lib/events";
+import { updateMember, uploadMemberPhoto, fetchMemberById, fetchMemberByIdFresh } from "../api/sheets";
 import { MUNICIPALITIES, getBarangays } from "../utils/locations";
 
 // Helpers to normalize values from possibly varying header keys
@@ -93,48 +95,104 @@ export default function EditMemberModal({ open, onClose, member, onSaved }) {
 
   // Prefill once per open. Avoid resetting user input if parent re-renders or member prop refreshes.
   useEffect(() => {
+    let cancelled = false;
     if (!open) { initializedRef.current = false; return; }
     if (initializedRef.current) return; // already initialized for this open session
     const row = member || {};
     const id = String(pickVal(row, "MemberID", "memberId", "member_id", "id") || "").trim();
     setExistingId(id);
-    const ln = pickVal(row, "LastName", "lastName", "last_name", "Last");
-    const fn = pickVal(row, "FirstName", "firstName", "first_name", "First");
-    const mn = pickVal(row, "MiddleName", "middleName", "middle_name");
-    const nn = pickVal(row, "NickName", "nickname", "nick_name", "Nick Name");
-    const gen = pickVal(row, "Gender", "gender");
-    const bday = pickVal(row, "Birthday", "birth_date", "dob", "Birth Date");
-    const street = pickVal(row, "Street", "street");
-    const brgy = pickVal(row, "Brgy", "Barangay", "brgy", "barangay");
-    const muni = pickVal(row, "Municipality", "City", "municipality", "city");
-    const email = pickVal(row, "Email", "email");
-    const mobile = pickVal(row, "Mobile", "Phone", "mobile", "phone");
-    const validId = pickVal(row, "ValidID", "Valid Id", "Valid ID", "validId", "valid_id");
-    const student = String(pickVal(row, "Student", "student") || "").toLowerCase().startsWith("y");
-  const photo = pickVal(row, "PhotoURL", "photoUrl", "photo_url", "photo");
-  const normalized = photo ? driveThumb(driveImg(photo)) : "";
-  setExistingPhotoUrl(photo || "");
-  setPhotoPreview(normalized);
-    setPhotoFile(null);
-    setErr("");
-  const candidateBrgy = String(brgy || "");
-    setForm({
-      lastName: String(ln || ""),
-      firstName: String(fn || ""),
-      middleName: String(mn || ""),
-      nickName: String(nn || ""),
-      gender: String(gen || ""),
-      birthday: bday ? new Date(bday).toISOString().slice(0, 10) : "",
-      street: String(street || ""),
-  brgy: candidateBrgy,
-      municipality: String(muni || ""),
-      email: String(email || ""),
-      mobile: String(mobile || ""),
-      validId: String(validId || ""),
-      student,
-    });
-    // If the prefilled barangay is not in the allowed list for the municipality, keep it in value but it won't show in options until user adjusts.
-    initializedRef.current = true;
+
+    // Fetch authoritative member data from the server when the modal opens so the editor
+    // shows the freshest values. Fall back to the provided `member` prop if fetch fails.
+    (async () => {
+      try {
+        if (id) {
+          const fresh = await fetchMemberById(String(id).trim());
+          if (!cancelled && fresh) {
+            const ln = pickVal(fresh, "LastName", "lastName", "last_name", "Last");
+            const fn = pickVal(fresh, "FirstName", "firstName", "first_name", "First");
+            const mn = pickVal(fresh, "MiddleName", "middleName", "middle_name");
+            const nn = pickVal(fresh, "NickName", "nickname", "nick_name", "Nick Name");
+            const gen = pickVal(fresh, "Gender", "gender");
+            const bday = pickVal(fresh, "Birthday", "birth_date", "dob", "Birth Date");
+            const street = pickVal(fresh, "Street", "street");
+            const brgy = pickVal(fresh, "Brgy", "Barangay", "brgy", "barangay");
+            const muni = pickVal(fresh, "Municipality", "City", "municipality", "city");
+            const email = pickVal(fresh, "Email", "email");
+            const mobile = pickVal(fresh, "Mobile", "Phone", "mobile", "phone");
+            const validId = pickVal(fresh, "ValidID", "Valid Id", "Valid ID", "validId", "valid_id");
+            const student = String(pickVal(fresh, "Student", "student") || "").toLowerCase().startsWith("y");
+            const photo = pickVal(fresh, "PhotoURL", "photoUrl", "photo_url", "photo");
+            const normalized = photo ? driveThumb(driveImg(photo)) : "";
+            setExistingPhotoUrl(photo || "");
+            setPhotoPreview(normalized);
+            setPhotoFile(null);
+            setErr("");
+            const candidateBrgy = String(brgy || "");
+            setForm({
+              lastName: String(ln || ""),
+              firstName: String(fn || ""),
+              middleName: String(mn || ""),
+              nickName: String(nn || ""),
+              gender: String(gen || ""),
+              birthday: bday ? new Date(bday).toISOString().slice(0, 10) : "",
+              street: String(street || ""),
+              brgy: candidateBrgy,
+              municipality: String(muni || ""),
+              email: String(email || ""),
+              mobile: String(mobile || ""),
+              validId: String(validId || ""),
+              student,
+            });
+            initializedRef.current = true;
+            return;
+          }
+        }
+      } catch (e) {
+        // ignore fetch error and fall back to passed member
+      }
+
+      // fallback: use prop `member` if fetch failed or no id
+      if (!cancelled) {
+        const ln = pickVal(row, "LastName", "lastName", "last_name", "Last");
+        const fn = pickVal(row, "FirstName", "firstName", "first_name", "First");
+        const mn = pickVal(row, "MiddleName", "middleName", "middle_name");
+        const nn = pickVal(row, "NickName", "nickname", "nick_name", "Nick Name");
+        const gen = pickVal(row, "Gender", "gender");
+        const bday = pickVal(row, "Birthday", "birth_date", "dob", "Birth Date");
+        const street = pickVal(row, "Street", "street");
+        const brgy = pickVal(row, "Brgy", "Barangay", "brgy", "barangay");
+        const muni = pickVal(row, "Municipality", "City", "municipality", "city");
+        const email = pickVal(row, "Email", "email");
+        const mobile = pickVal(row, "Mobile", "Phone", "mobile", "phone");
+        const validId = pickVal(row, "ValidID", "Valid Id", "Valid ID", "validId", "valid_id");
+        const student = String(pickVal(row, "Student", "student") || "").toLowerCase().startsWith("y");
+        const photo = pickVal(row, "PhotoURL", "photoUrl", "photo_url", "photo");
+        const normalized = photo ? driveThumb(driveImg(photo)) : "";
+        setExistingPhotoUrl(photo || "");
+        setPhotoPreview(normalized);
+        setPhotoFile(null);
+        setErr("");
+        const candidateBrgy = String(brgy || "");
+        setForm({
+          lastName: String(ln || ""),
+          firstName: String(fn || ""),
+          middleName: String(mn || ""),
+          nickName: String(nn || ""),
+          gender: String(gen || ""),
+          birthday: bday ? new Date(bday).toISOString().slice(0, 10) : "",
+          street: String(street || ""),
+          brgy: candidateBrgy,
+          municipality: String(muni || ""),
+          email: String(email || ""),
+          mobile: String(mobile || ""),
+          validId: String(validId || ""),
+          student,
+        });
+        initializedRef.current = true;
+      }
+    })();
+    return () => { cancelled = true; };
   }, [open, member]);
 
   const onChange = (e) => {
@@ -201,51 +259,90 @@ export default function EditMemberModal({ open, onClose, member, onSaved }) {
   const save = async (e) => {
     e?.preventDefault?.();
     if (!existingId) { setErr("Missing MemberID"); return; }
+    // Build optimistic payload from current form (use existingPhotoUrl for now)
+    const optimisticPayload = {
+      MemberID: existingId,
+      LastName: form.lastName.trim(),
+      FirstName: form.firstName.trim(),
+      MiddleName: form.middleName.trim(),
+      NickName: String(form.nickName || "").trim().toUpperCase(),
+      Gender: form.gender,
+      Birthday: form.birthday || "",
+      Street: form.street.trim(),
+      Brgy: form.brgy.trim(),
+      Municipality: form.municipality.trim(),
+      Email: form.email.trim(),
+      Mobile: form.mobile.trim(),
+      ValidID: form.validId.trim(),
+      Student: form.student ? "Yes" : "No",
+      // If user picked a new photo, use the local preview so the card updates immediately.
+      PhotoURL: photoPreview || existingPhotoUrl || "",
+    };
+
+    // Debug: show optimistic payload so we can trace what we attempted to send
+    try { console.debug('[EditMemberModal] optimisticPayload', optimisticPayload); } catch (e) { /* ignore */ }
+
+    // Perform network operations and wait for an authoritative server row before
+    // closing the modal or informing the parent. This ensures the MemberDetail
+    // reads directly from the database and displays authoritative values.
     setBusy(true);
     setErr("");
     try {
-      // Upload photo first if changed
       let photoUrl = existingPhotoUrl || "";
       if (photoFile) {
         const res = await uploadMemberPhoto(photoFile, String(existingId).toLowerCase());
+        try { console.debug('[EditMemberModal] uploadMemberPhoto result', res); } catch (e) {}
         photoUrl = typeof res === "string" ? res : (res?.url || photoUrl);
       }
 
-      const payload = {
-        MemberID: existingId,
-        LastName: form.lastName.trim(),
-        FirstName: form.firstName.trim(),
-        MiddleName: form.middleName.trim(),
-        NickName: String(form.nickName || "").trim().toUpperCase(), // locked in UI, but keep normalized
-        Gender: form.gender,
-        Birthday: form.birthday || "",
-        Street: form.street.trim(),
-    Brgy: form.brgy.trim(),
-    Municipality: form.municipality.trim(),
-        Email: form.email.trim(),
-        Mobile: form.mobile.trim(),
-        ValidID: form.validId.trim(),
-        Student: form.student ? "Yes" : "No",
-        PhotoURL: photoUrl,
-      };
+      const payload = { ...optimisticPayload, PhotoURL: photoUrl };
 
-      const resp = await updateMember(payload);
-      if (!resp?.ok) {
-        // Best-effort verification: refetch to check if the update actually applied
-        try{
-          const fresh = await fetchMemberById(String(existingId).trim());
-          if (fresh && sameAfterUpdate(payload, fresh)) {
-            setOk("Member updated successfully");
-            setTimeout(() => { onSaved?.(); onClose?.(); setOk(""); }, 800);
-            return;
+      // Send update and try to obtain authoritative row from server response.
+      let authoritative = null;
+      try {
+        try { console.debug('[EditMemberModal] sending update payload', payload); } catch (e) {}
+        const resp = await updateMember(payload);
+        try { console.debug('[EditMemberModal] updateMember response', resp); } catch (e) {}
+        if (resp && typeof resp === 'object') {
+          if (resp.row && typeof resp.row === 'object') authoritative = resp.row;
+          else if (resp.updated && typeof resp.updated === 'object') authoritative = resp.updated;
+          else if (resp.data && typeof resp.data === 'object') authoritative = resp.data;
+          else {
+            const hasMemberKeys = ['MemberID','memberid','LastName','FirstName'].some(k => Object.prototype.hasOwnProperty.call(resp, k));
+            if (hasMemberKeys) authoritative = resp;
           }
-        } catch { /* ignore verify error */ }
-        throw new Error(resp?.error || "Update failed");
+        }
+        try { console.debug('[EditMemberModal] authoritative after response', authoritative); } catch (e) {}
+      } catch (err) {
+        // surface server error to the user
+        try { console.debug('[EditMemberModal] updateMember error', String(err)); } catch (e) {}
+        setErr(String(err) || 'Failed to update member');
+        events.emit('modal:error', { message: 'Failed to update member', source: 'EditMemberModal', error: String(err) });
       }
-      setOk("Member updated successfully");
-      setTimeout(() => { onSaved?.(); onClose?.(); setOk(""); }, 800);
+
+      // If server didn't echo a row, fetch fresh authoritative row directly
+      if (!authoritative) {
+        try {
+          try { console.debug('[EditMemberModal] fetching fresh member by id', String(existingId).trim()); } catch (e) {}
+          const fresh = await fetchMemberByIdFresh(String(existingId).trim());
+          try { console.debug('[EditMemberModal] fetchMemberByIdFresh result', fresh); } catch (e) {}
+          if (fresh) authoritative = fresh;
+        } catch (e) {
+          // fall back to payload if fetch fails
+          try { console.debug('[EditMemberModal] fetchMemberByIdFresh failed', String(e)); } catch (ee) {}
+        }
+      }
+
+  if (!authoritative) authoritative = payload;
+
+  try { console.debug('[EditMemberModal] final authoritative row passed to parent', authoritative); } catch (e) {}
+
+  // Inform parent with authoritative row and close modal
+  try { onSaved?.(authoritative); } catch (e) { /* ignore parent handler errors */ }
+  try { onClose?.(); } catch (e) {}
     } catch (e2) {
-      setErr(e2.message || "Failed to update member");
+      events.emit('modal:error', { message: 'Background member update failed', source: 'EditMemberModal', error: String(e2) });
+      setErr(String(e2) || 'Background member update failed');
     } finally {
       setBusy(false);
     }
@@ -254,12 +351,8 @@ export default function EditMemberModal({ open, onClose, member, onSaved }) {
   if (!open) return null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <form onSubmit={save} style={{ width: "min(1000px, 96vw)", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>{form.nickName || "Edit Member"}</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+  <ModalWrapper open={open} onClose={onClose} title={form.nickName || "Edit Member"} width={1000} noInternalScroll={true}>
+    <form onSubmit={save} style={{ width: "100%", padding: 0, background: "transparent", border: "none", boxShadow: "none", overflow: "visible" }}>
 
         {err && <div className="small-error" style={{ marginBottom: 8 }}>{err}</div>}
         {ok && (
@@ -380,6 +473,6 @@ export default function EditMemberModal({ open, onClose, member, onSaved }) {
 
         <CameraModal open={showCam} onClose={() => setShowCam(false)} onCapture={onCapture} />
       </form>
-    </div>
+    </ModalWrapper>
   );
 }

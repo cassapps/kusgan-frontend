@@ -22,6 +22,8 @@ const pick = (o, keys=[]) => {
   return "";
 };
 
+import ModalWrapper from "./ModalWrapper";
+
 export default function ProgressViewModal({ open, onClose, row }){
   if (!open) return null;
   const r = row || {};
@@ -50,12 +52,7 @@ export default function ProgressViewModal({ open, onClose, row }){
   const p3 = pick(r, ["Photo3URL","Photo3","photo3"]);
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999 }}>
-      <div style={{ width: "min(900px, 96vw)", maxHeight: "92vh", overflow: "auto", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-          <div style={{ fontWeight:800, fontSize:18 }}>Progress Details</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+  <ModalWrapper open={open} onClose={onClose} title="Progress Details" noWrapper={true}>
 
         {/* Top info row matching Progress entry: Member ID, Date, No. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -111,8 +108,7 @@ export default function ProgressViewModal({ open, onClose, row }){
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </ModalWrapper>
   );
 }
 

@@ -351,6 +351,27 @@ table.aligned{ table-layout:fixed; margin-bottom:40px; }
 }
 @keyframes spin{ to { transform: rotate(360deg); } }
 
+/* Refresh badge used across pages for revalidation state */
+.refresh-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 10px;
+  border-radius:999px;
+  background: var(--kusgan-magenta-50);
+  color: var(--kusgan-magenta);
+  font-weight:700;
+  font-size:0.95rem;
+  border: 1px solid var(--kusgan-magenta-100);
+  margin-left:10px;
+}
+.refresh-badge .refresh-spinner{
+  width:14px; height:14px; border-radius:9999px;
+  border:2px solid rgba(213,29,122,0.15);
+  border-top-color: var(--kusgan-magenta);
+  animation: spin 800ms linear infinite;
+}
+
 /* Payments table header styling */
 .payments-table thead th{ text-align:center; vertical-align:middle; }
 .payments-table thead th .th-sub{

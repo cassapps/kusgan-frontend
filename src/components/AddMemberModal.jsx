@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import CameraModal from "./CameraModal";
+import ModalWrapper from "./ModalWrapper";
+import events from "../lib/events";
 import { uploadMemberPhoto, saveMember, fetchMembersFresh } from "../api/sheets";
 import { MUNICIPALITIES, getBarangays } from "../utils/locations";
 
@@ -145,7 +147,9 @@ export default function AddMemberModal({ open, onClose, onSaved }) {
         setOk("");
       }, 600);
     } catch (e2) {
-      setErr(e2?.message || "Failed to save");
+      const msg = e2?.message || "Failed to save";
+      setErr(msg);
+      try { events.emit('modal:error', { message: msg, source: 'AddMemberModal', error: String(e2) }); } catch(e) {}
     } finally {
       setBusy(false);
     }
@@ -154,12 +158,8 @@ export default function AddMemberModal({ open, onClose, onSaved }) {
   if (!open) return null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <form onSubmit={save} style={{ width: "min(1000px, 96vw)", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Add Member</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+  <ModalWrapper open={open} onClose={onClose} title="Add Member" width={1000} noInternalScroll={true}>
+    <form onSubmit={save} style={{ width: "100%", padding: 0, background: "transparent", border: "none", boxShadow: "none", overflow: "visible" }}>
 
         {err && <div className="small-error" style={{ marginBottom: 8 }}>{err}</div>}
         {ok && (
@@ -273,6 +273,6 @@ export default function AddMemberModal({ open, onClose, onSaved }) {
           />
         )}
       </form>
-    </div>
+    </ModalWrapper>
   );
 }

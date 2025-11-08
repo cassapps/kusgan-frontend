@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { addPayment, fetchPricing } from "../api/sheets";
+import ModalWrapper from "./ModalWrapper";
+import events from "../lib/events";
 
 const MANILA_TZ = "Asia/Manila";
 
@@ -158,16 +160,38 @@ export default function PaymentModal({ open, onClose, memberId, onSaved, members
     const cost = item ? (parseFloat(item.Cost) || 0).toFixed(2) : "";
     const validity = item ? Number(item.Validity || 0) : 0;
     const flags = getFlags(item);
-    const today = manilaTodayYMD();
-    // Determine extension base: if covers gym/coach and existing validity is active, start from the next day
-    const nextDay = (d) => addDaysYMD(toManilaYMD(d), 1);
-    let baseStart = today;
-    const gymBase = flags.gym && membershipEnd ? (new Date(membershipEnd) >= new Date(today) ? nextDay(membershipEnd) : today) : today;
-    const coachBase = flags.coach && coachEnd ? (new Date(coachEnd) >= new Date(today) ? nextDay(coachEnd) : today) : today;
-    baseStart = [gymBase, coachBase, today].sort()[[gymBase, coachBase, today].length - 1]; // pick max lexicographically (safe for YYYY-MM-DD)
+  const today = manilaTodayYMD();
+  // Determine extension base: if covers gym/coach and existing validity is active, start from the next day
+  // Use Manila YMD string comparisons to avoid timezone/parsing differences.
+  const gymCurrentYMD = membershipEnd ? toManilaYMD(membershipEnd) : "";
+  const coachCurrentYMD = coachEnd ? toManilaYMD(coachEnd) : "";
+  // Compute separate bases for gym and coach so they don't force a single shared start
+  const gymBase = flags.gym
+    ? (gymCurrentYMD && gymCurrentYMD >= today ? addDaysYMD(gymCurrentYMD, 1) : today)
+    : null;
+  const coachBase = flags.coach
+    ? (coachCurrentYMD && coachCurrentYMD >= today ? addDaysYMD(coachCurrentYMD, 1) : today)
+    : null;
+
+  // Determine a sensible default StartDate shown in the form:
+  // - If item affects both gym and coach, default StartDate to today so coach (when missing)
+  //   starts immediately while gym will still use gymBase when present.
+  // - If only gym is affected, default to gymBase (so extension continues from current end).
+  // - If only coach is affected, default to coachBase.
+  // - Otherwise default to today.
+  let startDefault = today;
+  if (flags.gym && flags.coach) {
+    startDefault = today;
+  } else if (flags.gym && gymBase) {
+    startDefault = gymBase;
+  } else if (flags.coach && coachBase) {
+    startDefault = coachBase;
+  } else {
+    startDefault = today;
+  }
 
     setForm((f) => {
-      const start = baseStart || f.StartDate || today;
+      const start = startDefault || f.StartDate || today;
       return {
         ...f,
         Particulars: val,
@@ -198,12 +222,11 @@ export default function PaymentModal({ open, onClose, memberId, onSaved, members
       const item = (filteredPricing || []).find((r) => String(r.Particulars) === String(form.Particulars));
       const validity = item ? Number(item.Validity || 0) : 0;
       const flags = getFlags(item);
-      const today = manilaTodayYMD();
-      const gymCurrent = membershipEnd ? toManilaYMD(membershipEnd) : "";
-      const coachCurrent = coachEnd ? toManilaYMD(coachEnd) : "";
-      const nextDay = (d) => addDaysYMD(toManilaYMD(d), 1);
-      const gymBase = flags.gym ? (gymCurrent && gymCurrent >= today ? nextDay(gymCurrent) : form.StartDate || today) : null;
-      const coachBase = flags.coach ? (coachCurrent && coachCurrent >= today ? nextDay(coachCurrent) : form.StartDate || today) : null;
+  const today = manilaTodayYMD();
+  const gymCurrent = membershipEnd ? toManilaYMD(membershipEnd) : "";
+  const coachCurrent = coachEnd ? toManilaYMD(coachEnd) : "";
+  const gymBase = flags.gym ? (gymCurrent && gymCurrent >= today ? addDaysYMD(gymCurrent, 1) : form.StartDate || today) : null;
+  const coachBase = flags.coach ? (coachCurrent && coachCurrent >= today ? addDaysYMD(coachCurrent, 1) : form.StartDate || today) : null;
       const gymNew = gymBase && validity ? endDateFrom(gymBase, validity) : "";
       const coachNew = coachBase && validity ? endDateFrom(coachBase, validity) : "";
 
@@ -220,7 +243,9 @@ export default function PaymentModal({ open, onClose, memberId, onSaved, members
       if (onSaved) onSaved();
       onClose && onClose();
     } catch (e2) {
-      setError(e2.message || "Failed to add payment");
+      const msg = e2?.message || "Failed to add payment";
+      setError(msg);
+      try { events.emit('modal:error', { message: msg, source: 'PaymentModal', error: String(e2) }); } catch(e) {}
     } finally {
       setBusy(false);
     }
@@ -228,14 +253,9 @@ export default function PaymentModal({ open, onClose, memberId, onSaved, members
 
   if (!open) return null;
 
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <form onSubmit={submit} style={{ width: "min(560px, 96vw)", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Add Payment</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
-
+    return (
+  <ModalWrapper open={open} onClose={onClose} title="Add Payment" width={560} noInternalScroll={true}>
+        <form onSubmit={submit} style={{ width: '100%' }}>
         {error && (
           <div className="small-error" style={{ marginBottom: 8 }}>{error}</div>
         )}
@@ -317,7 +337,7 @@ export default function PaymentModal({ open, onClose, memberId, onSaved, members
           <button type="button" className="back-btn" onClick={onClose} style={{ background: "#e5e7eb", color: "#111", fontWeight: 700 }}>Cancel</button>
           <button type="submit" className="primary-btn" disabled={busy}>+ Add Payment</button>
         </div>
-      </form>
-    </div>
-  );
+        </form>
+      </ModalWrapper>
+    );
 }

@@ -1,11 +1,75 @@
 // src/pages/Members.jsx
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import useSWR from 'swr';
 import { FixedSizeList as List } from 'react-window';
 import { useNavigate } from "react-router-dom";
 import { fetchSheet, fetchPayments, fetchGymEntries } from "../api/sheets";
 import LoadingSkeleton from '../components/LoadingSkeleton.jsx';
 import React, { Suspense } from 'react';
+import RefreshBadge from '../components/RefreshBadge.jsx';
 const AddMemberModal = React.lazy(() => import('../components/AddMemberModal.jsx'));
+
+// Simple in-memory cache for SWR-style stale-while-revalidate behavior
+const MEMBERS_CACHE = {
+  members: null,
+  payments: null,
+  gymEntries: null,
+  ts: {
+    members: 0,
+    payments: 0,
+    gymEntries: 0
+  }
+};
+
+// LocalStorage persistence
+const CACHE_KEY = 'kusgan.members.cache.v1';
+const CACHE_MAX_AGE = 1000 * 60 * 60; // 1 hour
+
+function loadCacheFromLocalStorage() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.ts) return;
+    const age = Date.now() - (parsed.ts.members || 0);
+    if (age > CACHE_MAX_AGE) return; // stale
+    MEMBERS_CACHE.members = parsed.members || null;
+    MEMBERS_CACHE.payments = parsed.payments || null;
+    MEMBERS_CACHE.gymEntries = parsed.gymEntries || null;
+    MEMBERS_CACHE.ts = parsed.ts || MEMBERS_CACHE.ts;
+  } catch (e) {
+    // ignore
+    console.debug('Members: failed to load cache from localStorage', e);
+  }
+}
+
+function saveCacheToLocalStorage() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const toSave = {
+      members: MEMBERS_CACHE.members,
+      payments: MEMBERS_CACHE.payments,
+      gymEntries: MEMBERS_CACHE.gymEntries,
+      ts: MEMBERS_CACHE.ts
+    };
+    // Persist asynchronously to avoid blocking the main thread during render/update cycles
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => {
+        try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(toSave)); } catch (e) { console.debug('Members: failed to save cache to localStorage', e); }
+      }, { timeout: 2000 });
+    } else {
+      setTimeout(() => {
+        try { window.localStorage.setItem(CACHE_KEY, JSON.stringify(toSave)); } catch (e) { console.debug('Members: failed to save cache to localStorage', e); }
+      }, 0);
+    }
+  } catch (e) {
+    console.debug('Members: failed to save cache to localStorage', e);
+  }
+}
+
+// Attempt to hydrate MEMBERS_CACHE from localStorage on module load
+try { loadCacheFromLocalStorage(); } catch (e) { /* no-op */ }
 
 // helpers
 const toKey = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -37,6 +101,17 @@ const fmtDate = (d) => {
   if (!d) return "";
   const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
   return `${m}-${d.getDate()}, ${d.getFullYear()}`;
+};
+
+// Return true if the given date (ISO/Date/string) is >= today (date-only, Manila/local)
+const isDateActive = (d) => {
+  if (!d) return false;
+  const dt = d instanceof Date ? new Date(d) : new Date(d);
+  if (isNaN(dt)) return false;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  dt.setHours(0,0,0,0);
+  return dt >= today;
 };
 
 const ageFromBirthday = (bday) => {
@@ -90,10 +165,23 @@ function buildPaymentIndex(paymentsRaw) {
   }
 
   const today = new Date();
+  // Normalize to start-of-day so "valid until today" is considered active for the whole day
+  today.setHours(0,0,0,0);
   for (const [id, rec] of idx) {
-    rec.membershipState =
-      rec.membershipEnd == null ? null : (rec.membershipEnd >= today ? "active" : "expired");
-    rec.coachActive = !!(rec.coachEnd && rec.coachEnd >= today);
+    if (rec.membershipEnd == null) {
+      rec.membershipState = null;
+    } else {
+      const end = new Date(rec.membershipEnd);
+      end.setHours(0,0,0,0);
+      rec.membershipState = end >= today ? "active" : "expired";
+    }
+    if (rec.coachEnd) {
+      const c = new Date(rec.coachEnd);
+      c.setHours(0,0,0,0);
+      rec.coachActive = c >= today;
+    } else {
+      rec.coachActive = false;
+    }
   }
   return idx;
 }
@@ -128,35 +216,55 @@ export default function Members() {
   const qTimer = useRef(null);
   const [openAdd, setOpenAdd] = useState(false);
 
-  async function loadAll() {
+  // SWR fetcher: combine Members, Payments, GymEntries into one object
+  const membersFetcher = async () => {
     const [mRes, pRes, gRes] = await Promise.all([
       fetchSheet('Members'), fetchPayments(), fetchGymEntries()
     ]);
-    const members = (mRes?.rows ?? mRes?.data ?? []).map(normRow);
-    const payments = pRes?.rows ?? pRes?.data ?? [];
-    const gymEntries = gRes?.rows ?? gRes?.data ?? [];
-    setRows(members);
-    setPayIdx(buildPaymentIndex(payments));
-    setVisitIdx(buildLastVisitIndex(gymEntries));
-  }
+    return {
+      members: (mRes?.rows ?? mRes?.data ?? []).map(normRow),
+      payments: (pRes?.rows ?? pRes?.data ?? []),
+      gymEntries: (gRes?.rows ?? gRes?.data ?? [])
+    };
+  };
 
+  const { data, error: swrError, isLoading: swrLoading, isValidating, mutate } = useSWR(
+    'members:all',
+    membersFetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 2000,
+      fallbackData: MEMBERS_CACHE.members ? { members: MEMBERS_CACHE.members, payments: MEMBERS_CACHE.payments, gymEntries: MEMBERS_CACHE.gymEntries } : undefined
+    }
+  );
+
+  // Hydrate state from SWR data and keep MEMBERS_CACHE updated
   useEffect(() => {
-    let alive = true;
-    setShowLoadingToast(true);
-    (async () => {
-      try {
-        await loadAll();
-        if (!alive) return;
-      } catch (e) {
-        console.error(e);
-        if (alive) setError(e.message || "Failed to fetch");
-      } finally {
-        if (alive) setLoading(false);
-        setShowLoadingToast(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
+    if (!data) return;
+    try {
+      setRows(data.members || []);
+      setPayIdx(buildPaymentIndex(data.payments || []));
+      setVisitIdx(buildLastVisitIndex(data.gymEntries || []));
+      MEMBERS_CACHE.members = data.members || [];
+      MEMBERS_CACHE.payments = data.payments || [];
+      MEMBERS_CACHE.gymEntries = data.gymEntries || [];
+      // update timestamps and persist to localStorage
+      MEMBERS_CACHE.ts = MEMBERS_CACHE.ts || {};
+      MEMBERS_CACHE.ts.members = Date.now();
+      MEMBERS_CACHE.ts.payments = Date.now();
+      MEMBERS_CACHE.ts.gymEntries = Date.now();
+      saveCacheToLocalStorage();
+    } catch (e) {
+      console.error('Members: failed to hydrate from SWR data', e);
+    }
+  }, [data]);
+
+  // mirror SWR loading/error into local state for existing UI
+  useEffect(() => {
+    setLoading(!!swrLoading);
+    setShowLoadingToast(!!swrLoading);
+    if (swrError) setError(swrError.message || String(swrError));
+  }, [swrLoading, swrError]);
 
   // Debounce search input so we don't recompute filters on every keystroke
   useEffect(() => {
@@ -198,10 +306,10 @@ export default function Members() {
     navigate(`/members/${encodeURIComponent(memberId)}`, { state: { row } });
   }, [navigate]);
 
-  console.log('Members.jsx state:', { loading, error, rows, filteredSorted });
+  // avoid logging large state objects here (can freeze the UI)
   return (
     <div className="content">
-      <h2 className="dashboard-title">All Members</h2>
+      <h2 className="dashboard-title">All Members <RefreshBadge show={isValidating && !swrLoading} /></h2>
 
       <div className="toolbar" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <input
@@ -233,7 +341,7 @@ export default function Members() {
             ) : filteredSorted.length <= membersLimit ? (
               // Render a normal table for small result sets so it matches other pages
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <table className="attendance-table aligned" style={{ width: '90%' }}>
+                <table className="attendance-table aligned" style={{ width: '100%' }}>
                   <colgroup>
                     <col style={{ width: '15%' }} />
                     <col style={{ width: '25%' }} />
@@ -284,8 +392,8 @@ export default function Members() {
                            {/* <img src={photoUrl} loading="lazy" srcSet={photoSrcSet} alt={fullName} style={{ maxWidth: 40, borderRadius: '50%' }} /> */}
                           <td style={{ textAlign: 'center' }}>{fmtDate(memberSince)}</td>
                           <td style={{ textAlign: 'center' }}>{isToday ? <span className="pill ok">Visited today</span> : (lastVisit ? fmtDate(new Date(lastVisit)) : "")}</td>
-                          <td style={{ textAlign: 'center', color: gymUntil ? (new Date(gymUntil) >= new Date() ? 'green' : 'red') : 'inherit' }}>{gymUntil ? fmtDate(new Date(gymUntil)) : ""}</td>
-                          <td style={{ textAlign: 'center', color: coachUntil ? (new Date(coachUntil) >= new Date() ? 'green' : 'red') : 'inherit' }}>{coachUntil ? fmtDate(new Date(coachUntil)) : ""}</td>
+                          <td style={{ textAlign: 'center', color: gymUntil ? (isDateActive(gymUntil) ? 'green' : 'red') : 'inherit' }}>{gymUntil ? fmtDate(new Date(gymUntil)) : ""}</td>
+                          <td style={{ textAlign: 'center', color: coachUntil ? (isDateActive(coachUntil) ? 'green' : 'red') : 'inherit' }}>{coachUntil ? fmtDate(new Date(coachUntil)) : ""}</td>
                         </tr>
                       );
                     })}
@@ -346,8 +454,8 @@ export default function Members() {
                       </div>
                       <div style={{ width: '15%', textAlign: 'center' }}>{fmtDate(memberSince)}</div>
                       <div style={{ width: '15%', textAlign: 'center' }}>{isToday ? <span className="pill ok">Visited today</span> : (lastVisit ? fmtDate(new Date(lastVisit)) : "")}</div>
-                      <div style={{ width: '15%', textAlign: 'center', color: gymUntil ? (new Date(gymUntil) >= new Date() ? 'green' : 'red') : 'inherit' }}>{gymUntil ? fmtDate(new Date(gymUntil)) : ""}</div>
-                      <div style={{ width: '15%', textAlign: 'center', color: coachUntil ? (new Date(coachUntil) >= new Date() ? 'green' : 'red') : 'inherit' }}>{coachUntil ? fmtDate(new Date(coachUntil)) : ""}</div>
+                      <div style={{ width: '15%', textAlign: 'center', color: gymUntil ? (isDateActive(gymUntil) ? 'green' : 'red') : 'inherit' }}>{gymUntil ? fmtDate(new Date(gymUntil)) : ""}</div>
+                      <div style={{ width: '15%', textAlign: 'center', color: coachUntil ? (isDateActive(coachUntil) ? 'green' : 'red') : 'inherit' }}>{coachUntil ? fmtDate(new Date(coachUntil)) : ""}</div>
                     </div>
                   );
                 }}
@@ -368,7 +476,7 @@ export default function Members() {
           open={openAdd}
           onClose={() => setOpenAdd(false)}
           onSaved={async () => {
-            try { await loadAll(); } catch(_) {}
+            try { await mutate(); } catch(_) {}
           }}
         />
       </Suspense>

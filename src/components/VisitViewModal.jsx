@@ -1,5 +1,7 @@
 import React from "react";
 import { fmtDate, fmtTime } from "../pages/MemberDetail.jsx";
+import { useNavigate } from "react-router-dom";
+import CheckInConfirmModal from './CheckInConfirmModal';
 
 // Small helpers copied from ProgressViewModal / MemberDetail
 const pick = (o, keys = []) => {
@@ -23,27 +25,36 @@ const driveThumb = (u = "") => {
   return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w1000` : s;
 };
 
-export default function VisitViewModal({ open, onClose, row }) {
+import ModalWrapper from "./ModalWrapper";
+
+export default function VisitViewModal({ open, onClose, row, onCheckout }) {
   if (!open) return null;
+  const navigate = useNavigate();
   const r = row || {};
+  const [busy, setBusy] = React.useState(false);
   const memberId = pick(r, ["MemberID", "memberid", "member_id", "id"]);
   const dateRaw = pick(r, ["Date", "date", "visit_date", "timestamp"]);
   const timeIn = pick(r, ["TimeIn", "timein", "time_in"]);
   const timeOut = pick(r, ["TimeOut", "timeout", "time_out"]);
-  const totalHours = pick(r, ["TotalHours", "totalhours", "hours"]);
+  const totalHours = pick(r, ["TotalHours", "totalhours", "NoOfHours", "noofhours", "hours"]);
   const coach = pick(r, ["Coach", "coach"]);
   const focus = pick(r, ["Focus", "focus"]);
   const workouts = pick(r, ["Workouts", "workouts", "done", "workouts_done"]);
   const comments = pick(r, ["Comments", "comments", "notes"]);
   const photo = pick(r, ["Photo", "photo", "photo_url", "PhotoURL"]);
 
+  const [openCheckoutModal, setOpenCheckoutModal] = React.useState(false);
+
+  const handleCheckoutSuccess = () => {
+    // notify parent that a checkout occurred so it can refresh if needed
+    if (typeof onCheckout === 'function') {
+      try { onCheckout(row, { checkedOut: true }); } catch (e) { console.error(e); }
+    }
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <div style={{ width: "min(720px, 96vw)", maxHeight: "92vh", overflow: "auto", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Visit Details</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+    <>
+  <ModalWrapper open={open} onClose={onClose} title="Visit Details" noInternalScroll={true}>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 }}>
@@ -90,19 +101,40 @@ export default function VisitViewModal({ open, onClose, row }) {
           <span className="label">Comments</span>
           <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, fontSize: 16, minHeight: 72 }}>{comments || "-"}</div>
         </div>
-
-        {photo ? (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ position: "relative", width: "100%", height: 0, paddingTop: "56.25%", borderRadius: 8, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-              <img src={driveThumb(photo)} alt="Photo" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-          </div>
-        ) : null}
-
-        <div style={{ textAlign: "right", marginTop: 14 }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+          {/* Show Check Out if entry has no TimeOut: navigate to Check-In page to use the unified confirm modal */}
+          {(!timeOut) ? (
+            <button
+              className="primary-btn"
+              onClick={() => {
+                try {
+                  // If parent provided an onCheckout handler, delegate to it so parent can show a global popup
+                  if (typeof onCheckout === 'function') {
+                    try { onCheckout(row); } catch (e) { console.error(e); }
+                    // close this modal right away
+                    onClose && onClose();
+                    return;
+                  }
+                  // otherwise open inline Check-In confirm modal (shortcut) for checkout
+                  setOpenCheckoutModal(true);
+                } catch (e) { console.error(e); }
+              }}
+            >
+              Check Out
+            </button>
+          ) : null}
           <button className="primary-btn" onClick={onClose}>Close</button>
         </div>
-      </div>
-    </div>
+    </ModalWrapper>
+    {openCheckoutModal && (
+      <CheckInConfirmModal
+        open={openCheckoutModal}
+        onClose={() => { setOpenCheckoutModal(false); /* keep parent modal open so user can see updates; close parent if desired */ }}
+        memberId={memberId}
+        initialEntry={row}
+        onSuccess={() => { setOpenCheckoutModal(false); onClose && onClose(); handleCheckoutSuccess(); }}
+      />
+    )}
+    </>
   );
 }

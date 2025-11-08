@@ -71,8 +71,14 @@ function rowsAsObjects_(sh, header) {
   // Universal rule: newest entries (last appended) should appear first.
   // We reverse the order after filtering/mapping to keep latest at the top for all tables.
   const rows = vals
-    .filter(r => r.some(v => v !== '' && v !== null))
-    .map(r => Object.fromEntries(header.map((h,i)=>[h, r[i]])));
+    .map((r, rowIdx) => {
+      // include the original sheet row number (1-based) so callers can target updates
+      const obj = Object.fromEntries(header.map((h,i)=>[h, r[i]]));
+      obj.rowNumber = rowIdx + 2; // data rows start at sheet row 2
+      obj.RowNumber = obj.rowNumber;
+      return obj;
+    })
+    .filter(r => Object.values(r).some(v => v !== '' && v !== null));
   return rows.reverse();
 }
 function headerIndex_(header, names){
@@ -206,6 +212,27 @@ function findLastOpenGymRow_(sh, header, memberId, dateStr){
     const rId = String(r[mCol]||'').trim().toLowerCase();
     const rOut = String(r[outCol]||'').trim();
     if (rId===tId && rDate===dateStr && !rOut) return i+2; // 2-based
+  }
+  return -1;
+}
+
+// Find a GymEntries row for a member on a specific date/timein (exact match)
+function findGymRowByTimeIn_(sh, header, memberId, dateStr, timeIn){
+  const dCol = header.indexOf('Date');
+  const mCol = header.indexOf('MemberID');
+  const inCol = header.indexOf('TimeIn');
+  if (dCol===-1 || mCol===-1 || inCol===-1) return -1;
+  const last = sh.getLastRow();
+  if (last <= 1) return -1;
+  const vals = sh.getRange(2,1,last-1,header.length).getValues();
+  const tId = String(memberId||'').trim().toLowerCase();
+  const tIn = String(timeIn||'').trim();
+  for (var i=vals.length-1;i>=0;i--){
+    const r = vals[i];
+    const rDate = ymdPH_(r[dCol]);
+    const rId = String(r[mCol]||'').trim().toLowerCase();
+    const rIn = String(r[inCol]||'').trim();
+    if (rId===tId && rDate===dateStr && rIn===tIn) return i+2; // 2-based
   }
   return -1;
 }
@@ -534,6 +561,20 @@ function doPost(e){
 
       let rowNumber = -1, created = false;
 
+      // If caller supplied an explicit rowNumber, try to use it
+      if (rowObj.rowNumber) {
+        const rn = Number(rowObj.rowNumber) || -1;
+        if (rn > 1 && rn <= sh.getLastRow()) rowNumber = rn;
+      }
+
+      // If caller supplied Date+TimeIn, try to find an exact match first
+      if (rowNumber === -1 && rowObj.TimeIn && rowObj.Date) {
+        const dateStrParam = String(rowObj.Date||'');
+        // If Date looks like ISO, normalize via ymdPH_
+        const tryDate = (dateStrParam.length === 10 && dateStrParam.indexOf('-')===4) ? dateStrParam : ymdPH_(new Date(dateStrParam));
+        rowNumber = findGymRowByTimeIn_(sh, header, rowObj.MemberID || rowObj.memberId || rowObj.memberID, tryDate, rowObj.TimeIn);
+      }
+
       if (!wantsOut){
           const obj = {
             Date: dateStr,
@@ -549,8 +590,8 @@ function doPost(e){
           rowNumber = sh.getLastRow();
           created = true;
       } else {
-        // try to close the last open row for this member today
-        rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
+        // try to close the last open row for this member today (unless we already resolved a rowNumber above)
+        if (rowNumber === -1) rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
         if (rowNumber === -1){
           const obj = { Date: dateStr, MemberID: memberId, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
           appendByHeader_(sh, header, obj);
@@ -590,6 +631,19 @@ function doPost(e){
 
       let rowNumber = -1, created = false;
 
+      // If caller provided an explicit rowNumber, prefer that
+      if (rowObj.rowNumber) {
+        const rn = Number(rowObj.rowNumber) || -1;
+        if (rn > 1 && rn <= sh.getLastRow()) rowNumber = rn;
+      }
+
+      // If caller provided Date + TimeIn, try to find that exact row before fallback
+      if (rowNumber === -1 && rowObj.TimeIn && rowObj.Date) {
+        const dateStrParam = String(rowObj.Date||'');
+        const tryDate = (dateStrParam.length === 10 && dateStrParam.indexOf('-')===4) ? dateStrParam : ymdPH_(new Date(dateStrParam));
+        rowNumber = findGymRowByTimeIn_(sh, header, rowObj.MemberID || rowObj.memberId || rowObj.memberID, tryDate, rowObj.TimeIn);
+      }
+
       if (!wantsOut){
           const obj = {
             Date: dateStr,
@@ -609,7 +663,8 @@ function doPost(e){
         const outCol = header.indexOf('TimeOut');
         const hrsCol = header.indexOf('NoOfHours');
 
-        rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
+        // If we haven't resolved a target row yet, try to find the last open row for today
+        if (rowNumber === -1) rowNumber = findLastOpenGymRow_(sh, header, memberId, dateStr);
         if (rowNumber === -1){
           const obj = { Date: dateStr, MemberID: memberId, TimeIn: timeNow, TimeOut: timeNow, NoOfHours: 0 };
           appendByHeader_(sh, header, obj);

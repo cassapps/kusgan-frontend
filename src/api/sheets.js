@@ -1,14 +1,19 @@
-import useSWR from 'swr';
 import debounce from 'lodash.debounce';
 // Debounced fetchSheet for user-triggered actions
 const debouncedFetchSheet = debounce(async (sheetName) => {
   return await fetchSheet(sheetName);
 }, 300);
 
-export function useSheetData(sheetName) {
-  // SWR caching for sheet data
-  const { data, error } = useSWR(sheetName, fetchSheet, { revalidateOnFocus: false });
-  return { data, error };
+// NOTE: removed SWR-based caching. `useSheetData` now performs a fresh fetch
+// against the configured Apps Script endpoint on every call so callers always
+// receive authoritative, up-to-date data.
+export async function useSheetData(sheetName) {
+  try {
+    const data = await fetchSheet(sheetName);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 // Apps Script Web App base URL
 // Support multiple env var names for backwards compatibility: prefer VITE_APPS_SCRIPT_URL,
@@ -46,7 +51,10 @@ async function getJSON(url) {
 import events from "../lib/events";
 
 // Simple in-memory cache to avoid repeated network round-trips during a session
+// Keep a placeholder cache object for compatibility but disable its use.
+// We'll clear it at module load to avoid any accidental stale reads.
 const _GET_CACHE = new Map(); // url -> { ts, data }
+try { _GET_CACHE.clear(); } catch (e) {}
 // Helper to selectively invalidate or update cache entries after writes.
 function _invalidateCacheContaining(sub) {
   try {
@@ -57,54 +65,15 @@ function _invalidateCacheContaining(sub) {
 }
 
 function _mergeMemberIntoCache(newRow) {
-  try {
-    const url = withQuery(`action=members`);
-    const entry = _GET_CACHE.get(url);
-    if (!entry) return;
-    const data = JSON.parse(JSON.stringify(entry.data));
-    if (Array.isArray(data)) {
-      data.push(newRow);
-      _GET_CACHE.set(url, { ts: Date.now(), data });
-      return;
-    }
-    if (data && Array.isArray(data.rows)) {
-      data.rows.push(newRow);
-      _GET_CACHE.set(url, { ts: Date.now(), data });
-      return;
-    }
-  } catch (e) {}
+  // no-op: client-side caching fully disabled to always fetch authoritative DB state
 }
 
 function _updateMemberInCache(updatedRow) {
-  try {
-    const url = withQuery(`action=members`);
-    const entry = _GET_CACHE.get(url);
-    if (!entry) return;
-    const data = JSON.parse(JSON.stringify(entry.data));
-    const rows = Array.isArray(data) ? data : (data && data.rows ? data.rows : null);
-    if (!rows) return;
-    const id = String(updatedRow.MemberID || updatedRow.memberid || updatedRow.id || '').trim();
-    const idx = rows.findIndex(r => String(r.MemberID||r.memberid||r.id||'') === id);
-    if (idx >= 0) {
-      rows[idx] = { ...rows[idx], ...updatedRow };
-      const newData = Array.isArray(data) ? rows : { ...data, rows };
-      _GET_CACHE.set(url, { ts: Date.now(), data: newData });
-    }
-  } catch (e) {}
+  // no-op: client-side caching fully disabled
 }
 function _appendGymEntryToCache(entry) {
-  try {
-    const url1 = withQuery(`sheet=GymEntries`);
-    const entryObj = _GET_CACHE.get(url1);
-    if (!entryObj) return false;
-    const data = JSON.parse(JSON.stringify(entryObj.data));
-    const rows = Array.isArray(data) ? data : (data && data.rows ? data.rows : null);
-    if (!rows) return false;
-    rows.unshift(entry);
-    const newData = Array.isArray(data) ? rows : { ...data, rows };
-    _GET_CACHE.set(url1, { ts: Date.now(), data: newData });
-    return true;
-  } catch (e) {}
+  // no-op: client-side caching fully disabled
+  return false;
 }
 // Remove exact duplicate gym/attendance rows (same Staff, Date, TimeIn, TimeOut)
 function _dedupeGymRows(rows) {
@@ -124,16 +93,48 @@ function _dedupeGymRows(rows) {
   }
 }
 function cachedGetJSON(url, ttlMs = 30_000) {
-  const now = Date.now();
-  const entry = _GET_CACHE.get(url);
-  if (entry && now - entry.ts < ttlMs) {
-    // return a shallow copy to avoid accidental mutation
-    return Promise.resolve(JSON.parse(JSON.stringify(entry.data)));
+  // NOTE: client-side caching disabled to ensure UI always reads fresh DB state.
+  // Always perform a fresh network GET and return the parsed JSON.
+  return getJSON(url).then((data) => JSON.parse(JSON.stringify(data)));
+}
+
+// Helper: pick first sensible value from a row given candidate header names
+function pickVal(row, ...cands) {
+  if (!row) return "";
+  for (const k of cands) {
+    if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") return row[k];
+    const kl = String(k).toLowerCase();
+    // try case-insensitive keys
+    const found = Object.keys(row || {}).find((kk) => String(kk || "").toLowerCase().replace(/\s+/g, "") === kl.replace(/\s+/g, ""));
+    if (found && row[found] !== undefined && row[found] !== null && String(row[found]).trim() !== "") return row[found];
   }
-  return getJSON(url).then((data) => {
-    try { _GET_CACHE.set(url, { ts: Date.now(), data }); } catch {}
-    return JSON.parse(JSON.stringify(data));
-  });
+  return "";
+}
+
+// Canonicalize member row keys to a predictable set used by the UI.
+function canonicalizeMember(raw) {
+  if (!raw) return null;
+  const r = raw || {};
+  const out = {};
+  out.memberid = String(pickVal(r, 'MemberID', 'memberId', 'member_id', 'ID', 'Id') || '').trim();
+  out.lastname = pickVal(r, 'LastName', 'Last Name', 'lastname', 'last_name');
+  out.firstname = pickVal(r, 'FirstName', 'First Name', 'firstname', 'first_name');
+  out.middlename = pickVal(r, 'MiddleName', 'Middle Name', 'middlename', 'middle_name');
+  out.nickname = pickVal(r, 'NickName', 'Nick Name', 'nickname', 'nick_name');
+  out.gender = pickVal(r, 'Gender', 'gender');
+  out.birthday = pickVal(r, 'Birthday', 'birth_date', 'dob', 'Birth Date');
+  out.street = pickVal(r, 'Street', 'street', 'House No', 'House No.');
+  out.brgy = pickVal(r, 'Brgy', 'Barangay', 'brgy', 'barangay');
+  out.municipality = pickVal(r, 'Municipality', 'City', 'municipality', 'city');
+  out.email = pickVal(r, 'Email', 'email');
+  out.mobile = pickVal(r, 'Mobile', 'Phone', 'mobile', 'phone');
+  out.member_since = pickVal(r, 'MemberSince', 'Member Since', 'member_since', 'join_date');
+  out.photo = pickVal(r, 'PhotoURL', 'photoUrl', 'photo_url', 'photo');
+  out.student = pickVal(r, 'Student', 'student');
+  out.validid = pickVal(r, 'ValidID', 'Valid Id', 'valid_id');
+  // also keep the original row for any other fields the UI may want
+  out._raw = r;
+  return out;
 }
 async function postJSON(url, body) {
   const r = await fetch(url, {
@@ -152,6 +153,7 @@ async function postJSON(url, body) {
     } else if (op === 'addpayment') {
       _invalidateCacheContaining('action=payments');
       _invalidateCacheContaining('action=dashboard');
+      try { events.emit('payment:added', { request: body, response: data }); } catch(e) {}
     }
   } catch (e) {}
   return data;
@@ -212,6 +214,7 @@ async function postForm(obj) {
     } else if (op === 'addpayment') {
       _invalidateCacheContaining('action=payments');
       _invalidateCacheContaining('action=dashboard');
+      try { events.emit('payment:added', { request: obj, response: data }); } catch(e) {}
     }
   } catch (e) {}
   return data;
@@ -274,7 +277,33 @@ export async function uploadMemberPhoto(fileOrArgs, baseId) {
 export async function fetchMemberById(memberId) {
   const res = await fetchSheet("Members");
   const rows = res?.rows || res?.data || [];
-  return rows.find(r => String(r.MemberID||"").trim() === String(memberId).trim()) || null;
+  const found = rows.find(r => String(r.MemberID||r.memberid||r.id||'').trim() === String(memberId).trim()) || null;
+  return canonicalizeMember(found) || null;
+}
+// Fresh fetch that bypasses the client-side cache and requests the Members
+// sheet directly from the server. Use this when you need authoritative data
+// immediately after a write (for example, in optimistic-update reconciliation).
+export async function fetchMemberByIdFresh(memberId) {
+  const res = await getJSON(withQuery(`sheet=${encodeURIComponent("Members")}`));
+  const rows = res?.rows || res?.data || [];
+  try {
+    console.debug('[sheets] fetchMemberByIdFresh', { memberId, rowsCount: (rows || []).length });
+  } catch (e) {}
+  const found = rows.find(r => String(r.MemberID||r.memberid||r.id||'').trim() === String(memberId).trim()) || null;
+  if (!found) {
+    try {
+      const ids = (rows || []).slice(0, 30).map(r => String(r.MemberID||r.memberid||r.id||'').trim());
+      console.debug('[sheets] fetchMemberByIdFresh: no match found for', memberId, 'sample ids=', ids);
+      if (rows && rows.length) console.debug('[sheets] fetchMemberByIdFresh: sample row[0]=', rows[0]);
+    } catch (e) {}
+  }
+  // Return the raw sheet row so existing components that expect original
+  // column names (e.g. `FirstName`, `LastName`, `NickName`) continue to work.
+  // Also attach a canonicalized copy under `_canonical` for callers that
+  // expect normalized keys.
+  if (!found) return null;
+  try { const c = canonicalizeMember(found); if (c) found._canonical = c; } catch (e) {}
+  return found;
 }
 export async function fetchMemberBundle(memberId) {
   if (!memberId) throw new Error("memberId is required");
@@ -285,12 +314,43 @@ export async function fetchMemberBundle(memberId) {
     fetchSheet("GymEntries"),
     fetchSheet("ProgressTracker"),
   ]);
-  const member = (memRes?.rows||memRes?.data||[]).find(r => String(r.MemberID||"").trim() === String(memberId).trim()) || null;
+  // Flexible key normalization: payments/gym rows may use different header names like
+  // 'MemberID', 'Member ID', 'member id' etc. Normalize keys to match reliably.
+  const normRowLocal = (row) => {
+    const out = {};
+    try { Object.entries(row || {}).forEach(([k, v]) => { out[String(k || "").trim().toLowerCase().replace(/\s+/g, "_")] = v; }); } catch (e) {}
+    return out;
+  };
   const id = String(memberId).trim();
-  const payments = (payRes?.rows||payRes?.data||[]).filter(r => String(r.MemberID||"").trim() === id);
-  const gymEntries = (gymRes?.rows||gymRes?.data||[]).filter(r => String(r.MemberID||"").trim() === id);
-  const progress = (progRes?.rows||progRes?.data||[]).filter(r => String(r.MemberID||"").trim() === id);
-  return { member, payments, gymEntries, progress };
+  const memRows = (memRes?.rows||memRes?.data||[]);
+  try { console.debug('[sheets] fetchMemberBundle', { memberId: id, memRows: memRows.length }); } catch (e) {}
+  const member = memRows.find(r => {
+    try { const n = normRowLocal(r); return String(n.memberid || n.member_id || n.id || '').trim() === id; } catch(e) { return false; }
+  }) || null;
+  if (!member) {
+    try {
+      const sampleIds = memRows.slice(0, 20).map(r => {
+        try { return String((r.MemberID||r.memberid||r.id||'')).trim(); } catch(e) { return '' }
+      });
+      console.debug('[sheets] fetchMemberBundle: member not found for', id, 'sampleIds=', sampleIds);
+      if (memRows && memRows.length) console.debug('[sheets] fetchMemberBundle: sample row[0]=', memRows[0]);
+    } catch (e) {}
+  }
+  // Keep the raw member row (sheet keys) for compatibility with existing
+  // components that access PascalCase column names. Provide a canonicalized
+  // copy under `_canonical` for normalized access when needed.
+  const canonicalMember = member ? canonicalizeMember(member) : null;
+  const payments = (payRes?.rows||payRes?.data||[]).filter(r => {
+    try { const n = normRowLocal(r); return String(n.memberid || n.member_id || n.id || '').trim() === id; } catch(e) { return false; }
+  });
+  const gymEntries = (gymRes?.rows||gymRes?.data||[]).filter(r => {
+    try { const n = normRowLocal(r); return String(n.memberid || n.member_id || n.id || '').trim() === id; } catch(e) { return false; }
+  });
+  const progress = (progRes?.rows||progRes?.data||[]).filter(r => {
+    try { const n = normRowLocal(r); return String(n.memberid || n.member_id || n.id || '').trim() === id; } catch(e) { return false; }
+  });
+  if (member && canonicalMember) member._canonical = canonicalMember;
+  return { member: member || null, payments, gymEntries, progress };
 }
 
 // Attendance (include sheet)
@@ -356,6 +416,8 @@ export async function attendanceQuickAppend(staff, extra = {}){
 
 // Gym Entries
 export async function fetchGymEntries() { return cachedGetJSON(withQuery(`sheet=GymEntries`), 30_000); }
+// Fresh, no-cache fetch for GymEntries when callers need authoritative, up-to-date rows.
+export async function fetchGymEntriesFresh() { return getJSON(withQuery(`sheet=GymEntries`)); }
 export async function addGymEntry(row) { return insertRow("GymEntries", row); }
 export async function gymClockIn(memberId, extra={}){
   if(!memberId) throw new Error("memberId is required");
@@ -363,13 +425,23 @@ export async function gymClockIn(memberId, extra={}){
 }
 export async function gymClockOut(memberId){
   if(!memberId) throw new Error("memberId is required");
-  return postForm({ op: "gymclockout", MemberID: memberId });
+  // Allow passing extra fields (Workouts, Comments, etc.) via additional properties
+  // Caller may pass an object: gymClockOut(memberId, { Workouts, Comments })
+  const extra = (arguments && arguments.length > 1 && typeof arguments[1] === 'object') ? arguments[1] : {};
+  return postForm({ op: "gymclockout", MemberID: memberId, ...extra });
 }
-export async function upsertGymEntry({ memberId, coach, focus, timeOut }){
+export async function upsertGymEntry({ memberId, coach, focus, timeOut, TimeIn, Date, rowNumber, Workouts, Comments }){
+  // Accept optional Date/TimeIn/rowNumber to allow targeting a specific existing row
+  if(!memberId) throw new Error('memberId is required');
   const payload = { op: "upsertgymentry", MemberID: memberId };
   if (timeOut) payload.TimeOut = timeOut;
   if (coach) payload.Coach = coach;
   if (focus) payload.Focus = focus;
+  if (TimeIn) payload.TimeIn = TimeIn;
+  if (Date) payload.Date = Date;
+  if (rowNumber) payload.rowNumber = rowNumber;
+  if (Workouts) payload.Workouts = Workouts;
+  if (Comments) payload.Comments = Comments;
   return postForm(payload);
 }
 

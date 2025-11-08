@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
 import QrScanModal from "../components/QrScanModal";
 import LoadingSkeleton from "../components/LoadingSkeleton";
+import events from "../lib/events";
+import CheckInConfirmModal from "../components/CheckInConfirmModal";
 import { fetchMemberBundle, fetchPricing, fetchMembers, gymClockIn, gymClockOut, gymQuickAppend } from "../api/sheets";
 
 // Helper copied to keep page self-contained
@@ -16,9 +18,21 @@ const fmtDate = (d) => {
   const y = parts.find((p) => p.type === "year")?.value || "";
   return `${m}-${day}, ${y}`;
 };
+// Date-only active check: return true if date >= today (date-only)
+const isDateActive = (d) => {
+  if (!d) return false;
+  const dt = d instanceof Date ? new Date(d) : new Date(d);
+  if (isNaN(dt)) return false;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  dt.setHours(0,0,0,0);
+  return dt >= today;
+};
 
 function computeStatus(payments, memberId, pricingRows) {
   const today = new Date();
+  // Normalize to start-of-day so 'valid until today' counts as active for the whole day
+  today.setHours(0,0,0,0);
   let membershipEnd = null, coachEnd = null;
   const map = new Map();
   const rows = Array.isArray(pricingRows) ? pricingRows : [];
@@ -58,12 +72,19 @@ function computeStatus(payments, memberId, pricingRows) {
     if (c && (flags.coach === true || (flags.coach === null && /coach|trainer|pt/i.test(tag)))) coachEnd = !coachEnd || c > coachEnd ? c : coachEnd;
   }
 
-  return {
-    membershipEnd,
-    membershipState: membershipEnd == null ? null : (membershipEnd >= today ? "active" : "expired"),
-    coachEnd,
-    coachActive: !!(coachEnd && coachEnd >= today),
-  };
+  let membershipState = null;
+  if (membershipEnd) {
+    const e = new Date(membershipEnd);
+    e.setHours(0,0,0,0);
+    membershipState = e >= today ? "active" : "expired";
+  }
+  let coachActive = false;
+  if (coachEnd) {
+    const c = new Date(coachEnd);
+    c.setHours(0,0,0,0);
+    coachActive = c >= today;
+  }
+  return { membershipEnd, membershipState, coachEnd, coachActive };
 }
 
 const FOCUSES = ["Full body", "Upper body", "Lower body", "Chest", "Other"];
@@ -105,6 +126,7 @@ export default function CheckIn(){
   const [pricing, setPricing] = useState([]);
   const [status, setStatus] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmInitialEntry, setConfirmInitialEntry] = useState(null);
   const [coach, setCoach] = useState("");
   const [focus, setFocus] = useState("");
   const [resultText, setResultText] = useState("");
@@ -131,12 +153,12 @@ export default function CheckIn(){
         const members = (memRes?.rows || memRes?.data || []).slice();
         const payments = payRes?.rows || payRes?.data || [];
         const pricing = priceRes?.rows || priceRes?.data || [];
-        // Only include members with active gym membership
+        // Only include members with active gym membership (include validity that ends today)
         const filtered = members.filter(m => {
           const id = m.MemberID || m.member_id || m.id;
           const pay = payments.filter(p => String(p.MemberID||p.member_id||p.id||"").trim() === String(id).trim());
           const status = computeStatus(pay, id, pricing);
-          return status.membershipState === "active";
+          return status.membershipState === "active" || isDateActive(status?.membershipEnd);
         });
         filtered.sort((a,b)=>{
           const an = String(a.Nickname||a.NickName||a["Nick Name"]||"").toLowerCase();
@@ -194,15 +216,39 @@ export default function CheckIn(){
     if (open){
       setIsCheckedIn(true);
       setResultText("");
+      // If we found an open entry in the freshly loaded bundle, pass it to the modal
+      setConfirmInitialEntry(open || null);
       // modal already open; show card to confirm check-out
     } else {
       setIsCheckedIn(false);
       setResultText("");
+      setConfirmInitialEntry(null);
       // modal already open; show card to confirm check-in + options
     }
   };
 
+  // Refresh bundle/status when a gym entry for the current member is added/updated elsewhere
+  useEffect(() => {
+    const handler = async (entry) => {
+      try {
+        const id = String((entry && (entry.MemberID || entry.memberid || entry.Member)) || '').trim();
+        if (!id) return;
+        if (!memberId) return;
+        if (String(id) !== String(memberId)) return;
+        // reload bundle and status for the currently selected member
+        await loadData(memberId);
+        // clear any initial entry (we'll recompute open row from the fresh bundle)
+        setConfirmInitialEntry(null);
+      } catch (e) {
+        console.debug('CheckIn: gymEntry event handler failed', e);
+      }
+    };
+    const unsub = events.on('gymEntry:added', handler);
+    return () => { try { unsub(); } catch(_){} };
+  }, [memberId]);
+
   const confirmCheckIn = async () => {
+    if (!bundle || !status) return; // details not loaded yet
     // Optimistic UI: show success immediately and perform the write in background
     const timeStr = new Intl.DateTimeFormat('en-US', { timeZone: MANILA_TZ, month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(new Date());
     const name = m?.nick || 'Member';
@@ -286,6 +332,7 @@ export default function CheckIn(){
   };
 
   const confirmCheckOut = async () => {
+    if (!bundle || !status) return; // details not loaded yet
     // Optimistic UI: update local state immediately
     const timeStr = new Intl.DateTimeFormat('en-US', { timeZone: MANILA_TZ, month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(new Date());
     const name = m?.nick || 'Member';
@@ -410,114 +457,20 @@ export default function CheckIn(){
 
       <QrScanModal open={scannerOpen} onClose={()=>setScannerOpen(false)} onDetected={onDetected} />
 
-      {confirmOpen && (
-        <div style={overlayStyle}>
-          <div style={modalStyle}>
-            <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', marginBottom:8 }}>
-              <button className="button btn-lg" style={{ background:'#555' }} onClick={()=>{ setConfirmOpen(false); setResultText(""); }}>{resultText?"Close":"Cancel"}</button>
-            </div>
-
-            {resultText === "NO ACTIVE GYM MEMBERSHIP" ? (
-              <div style={{ color:'#d6002a', fontWeight:900, fontSize:32, textAlign:'center', padding:'32px 0' }}>{resultText}</div>
-            ) : m ? (
-              <>
-                {/* Top row: bigger photo + names */}
-                <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:16, alignItems:'center' }}>
-                    <div style={{ width:150, height:200, borderRadius:12, overflow:'hidden', border:'1px solid #e7e8ef', background:'#fafbff' }}>
-                    {m.photo && !imgFailed ? (
-                      <img src={m.photo} alt="Member" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={(e)=>{ setImgFailed(true); e.currentTarget.onerror = null; }} />
-                    ) : (
-                      <div style={{ display:'flex', width:'100%', height:'100%', alignItems:'center', justifyContent:'center', color:'#999' }}>No Photo</div>
-                    )}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight:900, fontSize:28, lineHeight:1.1 }}>{m.nick || '-'}</div>
-                    <div style={{ fontWeight:700, fontSize:18, color:'#444', marginTop:4 }}>{[m.first,m.last].filter(Boolean).join(' ') || '-'}</div>
-                    <div style={{ fontStyle:'italic', color:'#666', marginTop:8 }}>Member Since</div>
-                    <div style={{ fontWeight:800, fontSize:16 }}>{fmtDate(m.memberSince)}</div>
-                  </div>
-                </div>
-
-                {/* Status tiles (copy of Member Detail) */}
-                <div className="status-tiles" style={{ marginTop:14 }}>
-                  {(() => {
-                    const memState = status?.membershipState == null ? 'none' : status.membershipState;
-                    const coachState = status?.coachEnd ? (status.coachEnd >= new Date() ? 'active' : 'expired') : 'none';
-                    return (
-                      <>
-                        <div className={`status-tile ${memState}`}>
-                          <div className="title">Gym Membership</div>
-                          <div style={{ marginBottom: 10 }}>
-                            {memState === 'active' && <span className="pill ok">Active</span>}
-                            {memState === 'expired' && <span className="pill bad">Expired</span>}
-                            {memState === 'none' && <span className="pill" style={{ background:'#fff', color:'#555', borderColor:'#ddd' }}>None</span>}
-                          </div>
-                          <div className="label">Valid until</div>
-                          <div className="value">{fmtDate(status?.membershipEnd)}</div>
-                        </div>
-                        <div className={`status-tile ${coachState}`}>
-                          <div className="title">Coach Subscription</div>
-                          <div style={{ marginBottom: 10 }}>
-                            {coachState === 'active' && <span className="pill ok">Active</span>}
-                            {coachState === 'expired' && <span className="pill bad">Expired</span>}
-                            {coachState === 'none' && <span className="pill" style={{ background:'#fff', color:'#555', borderColor:'#ddd' }}>None</span>}
-                          </div>
-                          <div className="label">Valid until</div>
-                          <div className="value">{fmtDate(status?.coachEnd)}</div>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </>
-            ) : <LoadingSkeleton />}
-
-            {!resultText && (
-              <>
-                {isCheckedIn ? (
-                  <>
-                    <div className="field" style={{ marginTop:16 }}>
-                      <label className="label">Workouts Done</label>
-                      <textarea value={workouts} onChange={e=>setWorkouts(e.target.value)} placeholder="Describe workouts done (optional)" style={{ width:'100%', minHeight:48, borderRadius:8, border:'1px solid #e7e8ef', padding:'8px 12px', fontSize:15, resize:'vertical' }} />
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16 }}>
-                      <button className="primary-btn" onClick={confirmCheckOut}>Confirm Check-Out</button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {status?.coachActive && (
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:14 }}>
-                        <div className="field">
-                          <label className="label">Coach</label>
-                          <select value={coach} onChange={e=>setCoach(e.target.value)}>
-                            <option value="">(Select)</option>
-                            {COACHES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label className="label">Workout Focus</label>
-                          <select value={focus} onChange={e=>setFocus(e.target.value)}>
-                            <option value="">(none)</option>
-                            {FOCUSES.map(f => <option key={f} value={f}>{f}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                    <div className="field" style={{ marginTop:16 }}>
-                      <label className="label">Comments</label>
-                      <textarea value={comments} onChange={e=>setComments(e.target.value)} placeholder="Add comments (optional)" style={{ width:'100%', minHeight:48, borderRadius:8, border:'1px solid #e7e8ef', padding:'8px 12px', fontSize:15, resize:'vertical' }} />
-                    </div>
-                    <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16 }}>
-                      <button className="primary-btn" onClick={confirmCheckIn}>Confirm Check-In</button>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <CheckInConfirmModal
+        open={confirmOpen}
+        memberId={memberId}
+        initialEntry={confirmInitialEntry}
+        onClose={() => { setConfirmOpen(false); setResultText(''); }}
+        onSuccess={() => {
+          setConfirmOpen(false);
+          setResultText('');
+          // refresh local bundle/status if needed
+          setBundle(null);
+          setStatus(null);
+          setConfirmInitialEntry(null);
+        }}
+      />
 
       {/* Toast message for check-in */}
       {showToast && (

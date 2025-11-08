@@ -6,11 +6,12 @@ import Nav from "./components/Nav";
 import Dashboard from "./pages/Dashboard";
 import Members from "./pages/Members";
 import MemberDetail from "./pages/MemberDetail";
-import AddMember from "./pages/AddMember";
-import Payments from "./pages/Payments";
 import CheckIn from "./pages/CheckIn";
 import StaffAttendance from "./pages/StaffAttendance";
-import ProgressDetail from "./pages/ProgressDetail";
+import GlobalToasts from "./components/GlobalToasts";
+// Note: non-primary pages (AddMember, Payments, ProgressDetail, Staff) are
+// intended to be refactored into components under `src/components/`.
+// Keep routed surface minimal: Dashboard, StaffAttendance, Members, MemberDetail, CheckIn
 import "./styles.css";
 
 // Simple Login card (logo + Google button)
@@ -95,20 +96,16 @@ export default function App() {
 
   return (
     <div className="app">
+      <GlobalToasts />
       <Nav onLogout={handleLogout} />
       <div className="main-content">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/attendance" element={<StaffAttendance />} />
           <Route path="/members" element={<Members />} />
-          <Route path="/members/add" element={<AddMember />} />
-          <Route path="/members/:memberId/edit" element={<AddMember />} />
-          {/* Keep one canonical route */}
+          {/* Canonical member detail route */}
           <Route path="/members/:memberId" element={<MemberDetail />} />
-          <Route path="/members/:id/progress/:index" element={<ProgressDetail />} />
-          <Route path="/payments" element={<Payments />} />
           <Route path="/checkin" element={<CheckIn />} />
-          <Route path="/members/new" element={<Navigate to="/members/add" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

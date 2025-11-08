@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import CameraModal from "./CameraModal";
+import ModalWrapper from "./ModalWrapper";
+import events from "../lib/events";
 import { addProgressRow, uploadMemberPhoto } from "../api/sheets";
 
 // Manila timezone helpers
@@ -80,6 +82,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   const [photos, setPhotos] = useState([]); // array of URLs at indices 0..2
   const [camOpen, setCamOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1); // which box is being filled/replaced
+  const [err, setErr] = useState("");
 
   // Derived
   const bmi = useMemo(() => {
@@ -119,6 +122,10 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
         next[idx] = url;
         return next;
       });
+    } catch (e) {
+      const msg = e?.message || 'Failed to upload photo';
+      setErr(msg);
+      try { events.emit('modal:error', { message: msg, source: 'ProgressModal', error: String(e) }); } catch (ee) {}
     } finally {
       setCamOpen(false);
       setActiveIdx(-1);
@@ -143,6 +150,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
   const save = async (e) => {
     e?.preventDefault?.();
     if (!memberId) return;
+    setErr("");
     const row = {
       MemberID: memberId,
       Date: today,
@@ -175,20 +183,23 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
       "RestingHeart Rate": rhr,
       Comments: comments,
     };
-    await addProgressRow(row);
-    onSaved?.();
-    onClose?.();
+    try {
+      await addProgressRow(row);
+      onSaved?.();
+      onClose?.();
+    } catch (e) {
+      const msg = e?.message || 'Failed to save progress entry';
+      setErr(msg);
+      try { events.emit('modal:error', { message: msg, source: 'ProgressModal', error: String(e) }); } catch (ee) {}
+    }
   };
 
   if (!open) return null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
-      <form onSubmit={save} style={{ width: "min(900px, 96vw)", maxHeight: "92vh", overflow: "auto", background: "#fff", borderRadius: 14, padding: 16, border: "1px solid var(--light-border)", boxShadow: "0 20px 60px rgba(0,0,0,.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>Progress Entry</div>
-          <button type="button" className="button" onClick={onClose} style={{ background: "#eee", color: "#333" }}>✕</button>
-        </div>
+    <ModalWrapper open={open} onClose={onClose} title="Progress Entry" width={900} noInternalScroll={true}>
+      {err && <div className="small-error" style={{ marginBottom: 8 }}>{err}</div>}
+  <form onSubmit={save} style={{ width: "100%", padding: 0, background: "transparent", border: "none", boxShadow: "none", overflow: "visible" }}>
 
         {/* Auto info row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -301,7 +312,7 @@ export default function ProgressModal({ open, onClose, memberId, memberSinceYMD,
         </div>
 
         <CameraModal open={camOpen} onClose={()=>setCamOpen(false)} onCapture={onCapture} />
-      </form>
-    </div>
-  );
+        </form>
+      </ModalWrapper>
+    );
 }
